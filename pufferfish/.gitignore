@@ -40,4 +40,8 @@
 # debug information files
 *.dwo
 
-build
+# Build outputs: ignore everything under build/ except the Release/pufferfish.exe binary
+/build/*
+!/build/Release/
+/build/Release/*
+!/build/Release/pufferfish.exe

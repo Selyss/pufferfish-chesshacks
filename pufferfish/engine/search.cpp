@@ -144,31 +144,46 @@ namespace pf
             return 0;
         ++ctx.stats.qnodes;
 
-        int standPat = ctx.nn->evaluate(pos);
-        if (standPat >= beta)
-            return standPat;
-        if (standPat > alpha)
-            alpha = standPat;
+        const bool inCheck = pos.in_check(pos.side_to_move);
+        int standPat = -INF_SCORE;
+        if (!inCheck)
+        {
+            standPat = ctx.nn->evaluate(pos);
+            if (standPat >= beta)
+                return standPat;
+            if (standPat > alpha)
+                alpha = standPat;
+        }
 
         MoveList moves, ordered;
-        generate_captures(pos, moves);
+        if (inCheck)
+        {
+            generate_moves(pos, moves);
+            filter_legal_moves(pos, moves);
+        }
+        else
+        {
+            generate_captures(pos, moves);
+        }
         if (moves.count == 0)
-            return standPat;
+            return inCheck ? -MATE_SCORE + ply : standPat;
 
         order_moves(pos, ctx, moves, ordered, MOVE_NONE, MOVE_NONE, ply);
 
         for (int i = 0; i < ordered.count; ++i)
         {
             Move m = ordered.moves[i];
-            // Delta pruning: if even capturing the most valuable piece cannot raise alpha, skip.
-            // Here we use a simple constant margin.
-            const int delta = 900; // queen
-            if (standPat + delta < alpha && !(move_flags(m) & FLAG_PROMOTION))
-                continue;
+            if (!inCheck)
+            {
+                // Delta pruning for non-promotion captures.
+                const int delta = 900; // queen
+                if (standPat + delta < alpha && !(move_flags(m) & FLAG_PROMOTION))
+                    continue;
+            }
 
             UndoState u;
             pos.do_move(m, u);
-            if (pos.in_check(Color(pos.side_to_move ^ 1)))
+            if (!inCheck && pos.in_check(Color(pos.side_to_move ^ 1)))
             {
                 pos.undo_move(u);
                 continue;

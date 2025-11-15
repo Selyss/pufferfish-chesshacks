@@ -107,23 +107,6 @@ static void test_tt_probe_store()
     assert((int)out.score == score);
 }
 
-// Simple material evaluator for search testing
-struct MaterialEvaluator : NNEvaluator
-{
-    int evaluate(const Position &pos) override
-    {
-        static const int val[PIECE_NB] = {
-            0,
-            100, 320, 330, 500, 900, 0,     // white
-            -100, -320, -330, -500, -900, 0 // black
-        };
-        int s = 0;
-        for (int sq = 0; sq < 64; ++sq)
-            s += val[pos.board[sq]];
-        return (pos.side_to_move == WHITE ? s : -s);
-    }
-};
-
 static void test_search_depth3()
 {
     init_zobrist();
@@ -134,8 +117,23 @@ static void test_search_depth3()
 
     TranspositionTable tt;
     tt.resize(16);
-
-    MaterialEvaluator nn;
+    NNUEEvaluator nn;
+    const char *weightPaths[] = {
+        "bot/python/nnue_weights.bin",
+        "../bot/python/nnue_weights.bin",
+        "../../bot/python/nnue_weights.bin",
+        "../../../bot/python/nnue_weights.bin",
+        "nnue_weights.bin"};
+    bool loaded = false;
+    for (const char *p : weightPaths)
+    {
+        if (nn.load(p))
+        {
+            loaded = true;
+            break;
+        }
+    }
+    assert(loaded && "NNUE weights failed to load for tests");
 
     SearchContext ctx;
     ctx.tt = &tt;
