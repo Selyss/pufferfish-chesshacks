@@ -134,33 +134,52 @@ namespace pf
         // This implementation trusts Position::do_move + legality filter to reject illegal castle through check.
         if (!pos.in_check(us))
         {
+            Color them = Color(us ^ 1);
             // White: rights bits 0 (K) and 1 (Q); Black: 2 (K) and 3 (Q)
             if (us == WHITE)
             {
-                // King side
+                // King side: king moves from e1 (4) to g1 (6), passing through f1 (5)
                 if (pos.castling_rights & 0b0001)
                 {
                     if (!(pos.occupiedBB & ((Bitboard(1) << 5) | (Bitboard(1) << 6))))
-                        list.push(make_move(4, 6, W_KING, 0, FLAG_CASTLING));
+                    {
+                        // Check that f1 and g1 are not attacked
+                        if (!pos.is_square_attacked(5, them) && !pos.is_square_attacked(6, them))
+                            list.push(make_move(4, 6, W_KING, 0, FLAG_CASTLING));
+                    }
                 }
-                // Queen side
+                // Queen side: king moves from e1 (4) to c1 (2), passing through d1 (3)
                 if (pos.castling_rights & 0b0010)
                 {
                     if (!(pos.occupiedBB & ((Bitboard(1) << 1) | (Bitboard(1) << 2) | (Bitboard(1) << 3))))
-                        list.push(make_move(4, 2, W_KING, 0, FLAG_CASTLING));
+                    {
+                        // Check that d1 and c1 are not attacked
+                        if (!pos.is_square_attacked(3, them) && !pos.is_square_attacked(2, them))
+                            list.push(make_move(4, 2, W_KING, 0, FLAG_CASTLING));
+                    }
                 }
             }
             else
             {
+                // King side: king moves from e8 (60) to g8 (62), passing through f8 (61)
                 if (pos.castling_rights & 0b0100)
                 {
                     if (!(pos.occupiedBB & ((Bitboard(1) << 61) | (Bitboard(1) << 62))))
-                        list.push(make_move(60, 62, B_KING, 0, FLAG_CASTLING));
+                    {
+                        // Check that f8 and g8 are not attacked
+                        if (!pos.is_square_attacked(61, them) && !pos.is_square_attacked(62, them))
+                            list.push(make_move(60, 62, B_KING, 0, FLAG_CASTLING));
+                    }
                 }
+                // Queen side: king moves from e8 (60) to c8 (58), passing through d8 (59)
                 if (pos.castling_rights & 0b1000)
                 {
                     if (!(pos.occupiedBB & ((Bitboard(1) << 57) | (Bitboard(1) << 58) | (Bitboard(1) << 59))))
-                        list.push(make_move(60, 58, B_KING, 0, FLAG_CASTLING));
+                    {
+                        // Check that d8 and c8 are not attacked
+                        if (!pos.is_square_attacked(59, them) && !pos.is_square_attacked(58, them))
+                            list.push(make_move(60, 58, B_KING, 0, FLAG_CASTLING));
+                    }
                 }
             }
         }

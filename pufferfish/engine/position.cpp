@@ -406,15 +406,39 @@ namespace pf
             board[rookTo] = rook;
         }
 
-        // Update castling rights (simplified: clear when king or rook moves or rook captured).
-        // Here we just clear all rights for the moving side when king moves, or side's corresponding rook moves.
+        // Update castling rights: clear when king or rook moves or rook captured.
         key ^= Zobrist.castling[castling_rights];
         if (piece == (us == WHITE ? W_KING : B_KING))
         {
+            // King moved - lose both castling rights
             if (us == WHITE)
                 castling_rights &= ~0b0011;
             else
                 castling_rights &= ~0b1100;
+        }
+        else if (piece == W_ROOK || piece == B_ROOK)
+        {
+            // Rook moved - check if it's from a starting square
+            if (from == 0)  // a1 - white queenside
+                castling_rights &= ~0b0010;
+            else if (from == 7)  // h1 - white kingside
+                castling_rights &= ~0b0001;
+            else if (from == 56)  // a8 - black queenside
+                castling_rights &= ~0b1000;
+            else if (from == 63)  // h8 - black kingside
+                castling_rights &= ~0b0100;
+        }
+        // Rook captured - check if on starting square
+        if (u.captured == W_ROOK || u.captured == B_ROOK)
+        {
+            if (to == 0)  // a1 - white queenside
+                castling_rights &= ~0b0010;
+            else if (to == 7)  // h1 - white kingside
+                castling_rights &= ~0b0001;
+            else if (to == 56)  // a8 - black queenside
+                castling_rights &= ~0b1000;
+            else if (to == 63)  // h8 - black kingside
+                castling_rights &= ~0b0100;
         }
         key ^= Zobrist.castling[castling_rights];
 
