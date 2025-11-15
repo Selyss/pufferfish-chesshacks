@@ -432,6 +432,7 @@ def train_on_modal(
         pin_memory=True,
         persistent_workers=False,
         prefetch_factor=None,
+        drop_last=True
     )
     val_loader = DataLoader(
         val_dataset,
@@ -440,6 +441,7 @@ def train_on_modal(
         pin_memory=True,
         persistent_workers=False,
         prefetch_factor=None,
+        drop_last=True
     )
     
     criterion = nn.MSELoss()

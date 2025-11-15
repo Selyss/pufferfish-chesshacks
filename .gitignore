@@ -5,3 +5,4 @@ venv
 .env
 devtools
 cached_features_v1.npz
+*.npz
