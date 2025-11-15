@@ -203,6 +203,7 @@ int main(int argc, char **argv)
     std::string fen;
     int depth = 5;
     int movetime = 0;
+    int ttMB = 64; // default TT size in megabytes
     for (int i = 1; i < argc; ++i)
     {
         std::string a = argv[i];
@@ -222,6 +223,10 @@ int main(int argc, char **argv)
         {
             movetime = std::max(0, std::atoi(argv[++i]));
         }
+        else if ((a == "--tt" || a == "--hash") && i + 1 < argc)
+        {
+            ttMB = std::max(1, std::atoi(argv[++i]));
+        }
     }
     if (!fen.empty())
     {
@@ -229,7 +234,8 @@ int main(int argc, char **argv)
     }
 
     TranspositionTable tt;
-    tt.resize(64); // 64 MB
+    tt.resize(static_cast<std::size_t>(ttMB));
+    std::cerr << "info tt_mb " << ttMB << std::endl;
 
     NNUEEvaluator nn;
     const char *weightPaths[] = {
