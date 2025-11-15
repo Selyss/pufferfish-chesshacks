@@ -9,8 +9,8 @@ constexpr int SQUARES = 64;
 constexpr int PIECE_TYPES = 6;
 constexpr int COLORS = 2;
 
-constexpr int FEATURE_DIM = 100000; // placeholder, should match python exporter
-constexpr int ACC_UNITS = 256;      // per side
+constexpr int FEATURE_DIM = 768; // 64 squares * 12 piece types
+constexpr int ACC_UNITS = 256;   // per side
 constexpr int HIDDEN1 = 32;
 constexpr int HIDDEN2 = 32;
 
