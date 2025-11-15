@@ -107,8 +107,9 @@ namespace pf
 
     struct SearchLimits
     {
-        std::uint64_t time_ms = 0; // per move
-        int depth = 0;             // 0 = no depth limit (use time)
+        std::uint64_t time_ms = 0;      // per move
+        std::uint64_t time_left_ms = 0; // remaining time in game (no increment)
+        int depth = 0;                  // 0 = no depth limit (use time)
     };
 
     struct TimeManager

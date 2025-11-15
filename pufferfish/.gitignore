@@ -45,3 +45,6 @@
 !/build/Release/
 /build/Release/*
 !/build/Release/pufferfish.exe
+
+bot\python\nnue_residual.bin
+bot\python\nnue_residual_rebalanced_preprocessed.bin

@@ -8,6 +8,7 @@
 #include "engine/movegen.h"
 #include "engine/tt.h"
 #include "engine/nn_interface.h"
+#include "engine/simple_nnue.h"
 #include "engine/search.h"
 
 using namespace pf;
@@ -117,13 +118,12 @@ static void test_search_depth3()
 
     TranspositionTable tt;
     tt.resize(16);
-    NNUEEvaluator nn;
+    SimpleNNUEEvaluator nn;
     const char *weightPaths[] = {
-        "bot/python/nnue_weights.bin",
-        "../bot/python/nnue_weights.bin",
-        "../../bot/python/nnue_weights.bin",
-        "../../../bot/python/nnue_weights.bin",
-        "nnue_weights.bin"};
+        "bot/python/nnue_residual_rebalanced_preprocessed.bin",
+        "../bot/python/nnue_residual_rebalanced_preprocessed.bin",
+        "../../bot/python/nnue_residual_rebalanced_preprocessed.bin",
+        "../../../bot/python/nnue_residual_rebalanced_preprocessed.bin"};
     bool loaded = false;
     for (const char *p : weightPaths)
     {

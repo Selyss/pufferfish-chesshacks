@@ -1,83 +1,108 @@
-from .utils import chess_manager, GameContext
-from chess import Move
-import time
+from __future__ import annotations
+
 import os
-import subprocess
-import shutil
+import sys
+from dataclasses import dataclass
+from pathlib import Path
 
-# Write code here that runs once
-# Can do things like load models from huggingface, make connections to subprocesses, etcwenis
-
-
-def find_engine() -> str | None:
-    here = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
-    candidates = [
-        os.path.join(here, 'pufferfish', 'build', 'Release', 'pufferfish.exe'),
-        os.path.join(here, 'pufferfish', 'build', 'Debug', 'pufferfish.exe'),
-        os.path.join(here, 'pufferfish', 'pufferfish.exe'),
-    ]
-    for c in candidates:
-        if os.path.isfile(c):
-            return c
-    return shutil.which('pufferfish')
+import chess
+from .bot.nnue import NNUEEvaluator
+from .bot.search import AlphaBetaSearch
+from .utils import GameContext, chess_manager
 
 
-def call_engine(fen: str, movetime_ms: int = 1000, timeout_s: float | None = None) -> str | None:
-    exe = find_engine()
-    if not exe:
-        return None
-    # Pass FEN as six separate CLI tokens expected by the C++ program
-    fen_tokens = fen.split()
-    cmd = [exe, '--fen', *fen_tokens, '--movetime', str(movetime_ms)]
-    # Optional tuning via environment variables
-    tt_mb = os.getenv('PUFFERFISH_TT_MB')
-    if tt_mb and tt_mb.isdigit():
-        cmd += ['--tt', tt_mb]
-    if os.getenv('PUFFERFISH_NO_QSEARCH', '').lower() in ('1', 'true', 'yes'):
-        cmd += ['--no-qsearch']
-    if os.getenv('PUFFERFISH_NO_TT', '').lower() in ('1', 'true', 'yes'):
-        cmd += ['--no-tt']
-    try:
-        out = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=timeout_s or max(2.0, movetime_ms / 1000.0 + 1.0),
+@dataclass
+class EngineConfig:
+    checkpoint: str
+    device: str = "cpu"
+    max_depth: int = 4
+    quiescence_depth: int = 4
+    temperature: float = 0.6
+    time_fraction: float = 0.02
+    min_time_ms: int = 100
+    max_time_ms: int = 4000
+    default_time_ms: int = 1000
+
+
+class SearchEngine:
+    def __init__(self) -> None:
+        self._config = self._load_config()
+        self._evaluator: NNUEEvaluator | None = None
+        self._search: AlphaBetaSearch | None = None
+
+    def _load_config(self) -> EngineConfig:
+        default_ckpt = Path(__file__).resolve().parent / "bot" / "checkpoints" / "nnue_epoch001.pt"
+        checkpoint = os.getenv("CHESSBOT_CHECKPOINT", str(default_ckpt))
+        device = os.getenv("CHESSBOT_DEVICE", "cpu")
+        max_depth = int(os.getenv("CHESSBOT_MAX_DEPTH", "4"))
+        quiescence_depth = int(os.getenv("CHESSBOT_QUIESCENCE_DEPTH", "4"))
+        temperature = float(os.getenv("CHESSBOT_TEMPERATURE", "0.6"))
+        time_fraction = float(os.getenv("CHESSBOT_TIME_FRACTION", "0.02"))
+        min_time_ms = int(os.getenv("CHESSBOT_MIN_TIME_MS", "100"))
+        max_time_ms = int(os.getenv("CHESSBOT_MAX_TIME_MS", "4000"))
+        default_time_ms = int(os.getenv("CHESSBOT_DEFAULT_TIME_MS", "1000"))
+        if not checkpoint:
+            raise ValueError("CHESSBOT_CHECKPOINT must point to a trained NNUE checkpoint file.")
+        return EngineConfig(
+            checkpoint=checkpoint,
+            device=device,
+            max_depth=max_depth,
+            quiescence_depth=quiescence_depth,
+            temperature=temperature,
+            time_fraction=time_fraction,
+            min_time_ms=min_time_ms,
+            max_time_ms=max_time_ms,
+            default_time_ms=default_time_ms,
         )
-    except Exception:
-        return None
-    if not out.stdout:
-        return None
-    for line in out.stdout.splitlines():
-        parts = line.strip().split(maxsplit=1)
-        if len(parts) == 2 and parts[0].lower() == 'bestmove':
-            # Engine returns UCI after the keyword
-            return parts[1]
-    return None
+
+    def ensure_ready(self) -> None:
+        if self._search is not None:
+            return
+        try:
+            self._evaluator = NNUEEvaluator.from_checkpoint(
+                self._config.checkpoint,
+                device=self._config.device,
+            )
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(
+                f"NNUE checkpoint not found at {self._config.checkpoint}. "
+                "Set CHESSBOT_CHECKPOINT to a valid path."
+            ) from exc
+        self._search = AlphaBetaSearch(
+            evaluator=self._evaluator,
+            max_depth=self._config.max_depth,
+            quiescence_depth=self._config.quiescence_depth,
+            temperature=self._config.temperature,
+        )
+
+    def select_move(self, ctx: GameContext) -> chess.Move:
+        self.ensure_ready()
+        assert self._evaluator is not None and self._search is not None
+        state = self._evaluator.initial_state(ctx.board)
+        budget = self._allocate_time(ctx.timeLeft)
+        result = self._search.search(state, budget)
+        ctx.logProbabilities(result.probabilities)
+        return result.move
+
+    def reset(self) -> None:
+        if self._search is not None:
+            self._search.nodes = 0
+
+    def _allocate_time(self, remaining_ms: int) -> int:
+        if remaining_ms is None or remaining_ms <= 0:
+            return self._config.default_time_ms
+        allocated = int(remaining_ms * self._config.time_fraction)
+        return max(self._config.min_time_ms, min(self._config.max_time_ms, allocated))
+
+
+engine = SearchEngine()
 
 
 @chess_manager.entrypoint
-def test_func(ctx: GameContext):
-    # Try to call the native pufferfish engine with current FEN
-    fen = ctx.board.fen()
-    best_uci = call_engine(fen, movetime_ms=1000)
-    if best_uci:
-        try:
-            mv = Move.from_uci(best_uci)
-            if mv in ctx.board.legal_moves:
-                return mv
-        except Exception:
-            pass
-
-    # No fallback: fail fast if engine didn't return a valid move
-    # TODO: just give a valid move instead of erroring out, later
-    raise ValueError("Engine did not return a valid move")
+def choose_move(ctx: GameContext) -> chess.Move:
+    return engine.select_move(ctx)
 
 
 @chess_manager.reset
-def reset_func(ctx: GameContext):
-    # This gets called when a new game begins
-    # Should do things like clear caches, reset model state, etc.
-    # TODO: clear TT, free everything
-    pass
+def reset_engine(ctx: GameContext) -> None:
+    engine.reset()

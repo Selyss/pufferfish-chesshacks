@@ -20,6 +20,8 @@ add_library(pufferfish_engine
 	engine/features.h
 	engine/features.cpp
 	engine/nn_interface.h
+	engine/simple_nnue.h
+	engine/simple_nnue.cpp
 	engine/search.h
 	engine/search.cpp
 )

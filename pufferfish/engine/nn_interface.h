@@ -19,6 +19,9 @@ namespace pf
         virtual int evaluate(const Position &pos) = 0;
     };
 
+    // Forward declare new evaluator to satisfy includes
+    class SimpleNNUEEvaluator;
+
     // Concrete NNUE-based evaluator implementation that wraps the NNUE loader.
     class NNUEEvaluator : public NNEvaluator
     {

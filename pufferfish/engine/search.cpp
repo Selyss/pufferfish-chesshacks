@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iostream>
 
 namespace pf
 {
@@ -92,13 +93,46 @@ namespace pf
             ordered.push(buf[i].m);
     }
 
+    static int estimate_moves_to_go(const Position &pos)
+    {
+        // Simple phase-based MTG: opening 28, middlegame 20, endgame 12
+        auto cnt = [&](Piece p)
+        { return (int)__popcnt64(pos.pieceBB[p]); };
+        int nonPawnMaterial = (cnt(W_KNIGHT) + cnt(B_KNIGHT)) * 3 + (cnt(W_BISHOP) + cnt(B_BISHOP)) * 3 +
+                              (cnt(W_ROOK) + cnt(B_ROOK)) * 5 + (cnt(W_QUEEN) + cnt(B_QUEEN)) * 9;
+        int mtg = 20;
+        if (nonPawnMaterial >= 40)
+            mtg = 28; // opening
+        else if (nonPawnMaterial <= 16)
+            mtg = 12; // endgame
+        return mtg;
+    }
+
     SearchResult search(Position &pos, SearchContext &ctx)
     {
         ctx.stats = SearchStats{};
         std::uint64_t start = now_ms();
         ctx.tm.start_ms = start;
         if (ctx.limits.time_ms)
+        {
             ctx.tm.alloc_ms = ctx.limits.time_ms;
+        }
+        else if (ctx.limits.time_left_ms)
+        {
+            std::uint64_t T = ctx.limits.time_left_ms;
+            int mtg = estimate_moves_to_go(pos);
+            // Keep a reserve: 12% of remaining time, capped at 4000 ms
+            std::uint64_t reserve = std::min<std::uint64_t>(T / 8, 4000);
+            std::uint64_t usable = (T > reserve) ? (T - reserve) : (T * 7 / 8);
+            // Base allocation: usable / (mtg + 1) for safety
+            std::uint64_t base = usable / (std::uint64_t)(mtg + 1);
+            // Clamp between [10 ms, 18% of T]
+            std::uint64_t hardMax = (T * 18) / 100;
+            std::uint64_t alloc = std::max<std::uint64_t>(10, std::min<std::uint64_t>(base, hardMax));
+            ctx.tm.alloc_ms = alloc;
+            std::cerr << "info tm time_left_ms " << T << " mtg " << mtg
+                      << " reserve_ms " << reserve << " alloc_ms " << alloc << std::endl;
+        }
 
         SearchResult result;
         Line rootPV;
@@ -163,7 +197,7 @@ namespace pf
 
     static bool should_abort(const SearchContext &ctx)
     {
-        if (!ctx.limits.time_ms)
+        if (ctx.tm.alloc_ms == 0)
             return false;
         std::uint64_t now = now_ms();
         return ctx.tm.is_time_up(now);
