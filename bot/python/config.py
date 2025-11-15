@@ -10,8 +10,8 @@ HIDDEN1 = 32
 HIDDEN2 = 32
 
 # Total feature count depends on your feature encoding.
-# This is a placeholder - set it to your real value.
-FEATURE_DIM = 100000
+# Using simple piece-square encoding: 64 squares * 12 piece types (6 white + 6 black)
+FEATURE_DIM = 768  # 64 * 12
 
 # Quantization parameters
 RELU_CLIP = 255
