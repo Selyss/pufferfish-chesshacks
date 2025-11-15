@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\bitboard.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\position.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\movegen.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\tt.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\search.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\bitboard.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\types.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\position.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\movegen.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\tt.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\nn_interface.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\engine\search.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{B5E7783C-A0E5-3D0C-A67D-34B0026023AD}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{7F3EE09D-32D1-3D46-A82B-38C633CE9D1E}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

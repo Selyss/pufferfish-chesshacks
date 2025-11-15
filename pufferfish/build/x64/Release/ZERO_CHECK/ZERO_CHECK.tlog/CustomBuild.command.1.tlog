@@ -1,0 +1,10 @@
+^C:\USERS\JTRED\CODE\CHESSHACKS\MY-CHESSHACKS-BOT\PUFFERFISH\BUILD\CMAKEFILES\73FC92DC423AD88A75049DFB20EADDBB\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/jtred/code/chesshacks/my-chesshacks-bot/pufferfish -BC:/Users/jtred/code/chesshacks/my-chesshacks-bot/pufferfish/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/jtred/code/chesshacks/my-chesshacks-bot/pufferfish/build/pufferfish_engine.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

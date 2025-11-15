@@ -1,0 +1,4 @@
+C:/Users/jtred/code/chesshacks/my-chesshacks-bot/pufferfish/build/CMakeFiles/pufferfish_engine.dir
+C:/Users/jtred/code/chesshacks/my-chesshacks-bot/pufferfish/build/CMakeFiles/pufferfish.dir
+C:/Users/jtred/code/chesshacks/my-chesshacks-bot/pufferfish/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/jtred/code/chesshacks/my-chesshacks-bot/pufferfish/build/CMakeFiles/ZERO_CHECK.dir

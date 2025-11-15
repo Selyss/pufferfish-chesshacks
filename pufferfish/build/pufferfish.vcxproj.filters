@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\jtred\code\chesshacks\my-chesshacks-bot\pufferfish\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{7F3EE09D-32D1-3D46-A82B-38C633CE9D1E}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
