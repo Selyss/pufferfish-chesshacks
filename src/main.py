@@ -20,6 +20,7 @@ NNUE_PATH = hf_hub_download(
 def find_engine() -> str | None:
     here = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
     candidates = [
+        os.path.join(here, 'pufferfish', 'pufferfish'),
         os.path.join(here, 'pufferfish', 'build', 'Release', 'pufferfish.exe'),
         os.path.join(here, 'pufferfish', 'build', 'Debug', 'pufferfish.exe'),
         os.path.join(here, 'pufferfish', 'pufferfish.exe'),
