@@ -31,8 +31,16 @@ class SearchEngine:
         self._search: AlphaBetaSearch | None = None
 
     def _load_config(self) -> EngineConfig:
-        default_ckpt = Path(__file__).resolve().parent / "bot" / "checkpoints" / "nnue_epoch004.pt"
-        checkpoint = os.getenv("CHESSBOT_CHECKPOINT", str(default_ckpt))
+        local_ckpt = Path(__file__).resolve().parent / "bot" / "checkpoints" / "nnue_epoch004.pt"
+        hf_default = "hf://ebatu/ChessHacks-models/nnue_epoch004.pt"
+        env_checkpoint = os.getenv("CHESSBOT_CHECKPOINT")
+        if env_checkpoint:
+            checkpoint = env_checkpoint
+        elif local_ckpt.exists():
+            checkpoint = str(local_ckpt)
+        else:
+            checkpoint = hf_default
+        checkpoint = self._resolve_checkpoint_source(checkpoint)
         device = os.getenv("CHESSBOT_DEVICE", "cpu")
         max_depth = int(os.getenv("CHESSBOT_MAX_DEPTH", "8"))
         quiescence_depth = int(os.getenv("CHESSBOT_QUIESCENCE_DEPTH", "8"))
@@ -54,6 +62,40 @@ class SearchEngine:
             max_time_ms=max_time_ms,
             default_time_ms=default_time_ms,
         )
+
+    def _resolve_checkpoint_source(self, checkpoint: str) -> str:
+        checkpoint = checkpoint.strip()
+        if checkpoint.startswith("hf://"):
+            return self._download_checkpoint_from_hf(checkpoint)
+        return checkpoint
+
+    def _download_checkpoint_from_hf(self, uri: str) -> str:
+        spec = uri.removeprefix("hf://").strip("/")
+        parts = spec.split("/")
+        if len(parts) < 3:
+            raise ValueError(
+                "hf:// URIs must follow hf://<user>/<repo>/<path/to/file>. "
+                f"Received: {uri}"
+            )
+        owner = parts[0]
+        repo_segment = parts[1]
+        revision = None
+        if "@" in repo_segment:
+            repo_name, revision = repo_segment.split("@", 1)
+        else:
+            repo_name = repo_segment
+        repo_id = f"{owner}/{repo_name}"
+        filename = "/".join(parts[2:])
+        if not filename:
+            raise ValueError(f"No file specified in hf:// URI: {uri}")
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError as exc:
+            raise ImportError(
+                "huggingface-hub is required for hf:// checkpoints. "
+                "Install it with `pip install huggingface-hub`."
+            ) from exc
+        return hf_hub_download(repo_id=repo_id, filename=filename, revision=revision)
 
     def ensure_ready(self) -> None:
         if self._search is not None:
