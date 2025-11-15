@@ -29,6 +29,14 @@ def call_engine(fen: str, movetime_ms: int = 1000, timeout_s: float | None = Non
     # Pass FEN as six separate CLI tokens expected by the C++ program
     fen_tokens = fen.split()
     cmd = [exe, '--fen', *fen_tokens, '--movetime', str(movetime_ms)]
+    # Optional tuning via environment variables
+    tt_mb = os.getenv('PUFFERFISH_TT_MB')
+    if tt_mb and tt_mb.isdigit():
+        cmd += ['--tt', tt_mb]
+    if os.getenv('PUFFERFISH_NO_QSEARCH', '').lower() in ('1', 'true', 'yes'):
+        cmd += ['--no-qsearch']
+    if os.getenv('PUFFERFISH_NO_TT', '').lower() in ('1', 'true', 'yes'):
+        cmd += ['--no-tt']
     try:
         out = subprocess.run(
             cmd,

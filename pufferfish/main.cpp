@@ -199,10 +199,14 @@ int main(int argc, char **argv)
     Position pos;
     pos.set_startpos();
 
-    // Parse CLI args: --fen <6 tokens>, --depth N, --movetime ms
+    // Parse CLI args: --fen <6 tokens>, --depth N, --movetime ms, --tt MB|--hash MB, --no-tt, --no-qsearch
     std::string fen;
     int depth = 5;
     int movetime = 0;
+    int ttMB = 64; // default TT size in megabytes
+    // int perftDepth = 0; // disabled
+    bool flag_no_tt = false;
+    bool flag_no_qsearch = false;
     for (int i = 1; i < argc; ++i)
     {
         std::string a = argv[i];
@@ -222,6 +226,22 @@ int main(int argc, char **argv)
         {
             movetime = std::max(0, std::atoi(argv[++i]));
         }
+        else if ((a == "--tt" || a == "--hash") && i + 1 < argc)
+        {
+            ttMB = std::max(1, std::atoi(argv[++i]));
+        }
+        // else if (a == "--perft" && i + 1 < argc)
+        // {
+        //     perftDepth = std::max(0, std::atoi(argv[++i]));
+        // }
+        else if (a == "--no-tt")
+        {
+            flag_no_tt = true;
+        }
+        else if (a == "--no-qsearch")
+        {
+            flag_no_qsearch = true;
+        }
     }
     if (!fen.empty())
     {
@@ -229,18 +249,16 @@ int main(int argc, char **argv)
     }
 
     TranspositionTable tt;
-    tt.resize(64); // 64 MB
+    if (!flag_no_tt)
+    {
+        tt.resize(static_cast<std::size_t>(ttMB));
+        std::cerr << "info tt_mb " << ttMB << std::endl;
+    }
 
     NNUEEvaluator nn;
     const char *weightPaths[] = {
-        // Relative to project root
-        "bot/python/nnue_weights.bin",
         // Common working dirs: repo root, pufferfish/, pufferfish/build/, pufferfish/build/Release/
-        "../bot/python/nnue_weights.bin",
-        "../../bot/python/nnue_weights.bin",
-        "../../../bot/python/nnue_weights.bin",
-        // Fallback to local cwd
-        "nnue_weights.bin"};
+        "../../bot/python/nnue_weights.bin"};
     bool loaded = false;
     const char *loadedPath = nullptr;
     for (const char *p : weightPaths)
@@ -262,9 +280,36 @@ int main(int argc, char **argv)
         std::cerr << "info nnue_loaded " << loadedPath << std::endl;
     }
 
+    // // Optional perft mode: count leaf nodes only; print and exit
+    // auto perft = [&](Position &p, int d) -> std::uint64_t
+    // {
+    //     if (d == 0)
+    //         return 1ull;
+    //     MoveList moves;
+    //     generate_moves(p, moves);
+    //     filter_legal_moves(p, moves);
+    //     std::uint64_t nodes = 0ull;
+    //     for (int i = 0; i < moves.count; ++i)
+    //     {
+    //         UndoState u;
+    //         p.do_move(moves.moves[i], u);
+    //         nodes += perft(p, d - 1);
+    //         p.undo_move(u);
+    //     }
+    //     return nodes;
+    // };
+
+    // if (perftDepth > 0)
+    // {
+    //     std::uint64_t nodes = perft(pos, perftDepth);
+    //     std::cout << nodes << "\n";
+    //     return 0;
+    // }
+
     SearchContext ctx;
-    ctx.tt = &tt;
+    ctx.tt = flag_no_tt ? nullptr : &tt;
     ctx.nn = static_cast<NNEvaluator *>(&nn);
+    ctx.use_qsearch = !flag_no_qsearch;
     if (movetime > 0)
     {
         ctx.limits.time_ms = static_cast<std::uint64_t>(movetime);

@@ -25,11 +25,16 @@ namespace pf
         NNEvaluator *nn = nullptr;
         TimeManager tm;
         SearchLimits limits;
+        bool use_qsearch = true;
 
         Move killers[2][MAX_PLY]{};
         int history[PIECE_NB][64]{};
 
         SearchStats stats;
+
+        // Repetition detection along the current search line
+        Key repStack[MAX_PLY]{};
+        int repLen = 0;
     };
 
     struct SearchResult

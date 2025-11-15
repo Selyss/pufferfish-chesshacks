@@ -17,6 +17,7 @@ namespace pf
         int8_t depth = 0;
         BoundType bound = BOUND_NONE;
         Move best = MOVE_NONE;
+        uint8_t gen = 0; // aging generation
     };
 
     struct TTBucket
@@ -40,8 +41,12 @@ namespace pf
 
         Move probe_move(Key key) const;
 
+        // Advance generation to age out old entries (call at new search or iteration)
+        void bump_generation() { ++generation_; }
+
     private:
         std::vector<TTBucket> buckets_;
+        uint8_t generation_ = 0;
 
         static int pack_score(int score, int ply);
         static int unpack_score(int packed, int ply);

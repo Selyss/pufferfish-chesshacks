@@ -120,8 +120,8 @@ def preprocess_features():
 
 @app.function(
     image=image,
-    gpu=modal.gpu.A100(count=1),  # Single A100 GPU
-    timeout=60 * 60 * 4,  # 4 hour timeout
+    gpu="A100-40GB",  # Single A100 GPU with 40GB VRAM
+    timeout=60 * 60 * 8,  # 8 hour timeout
     volumes={"/models": volume},
 )
 def train_on_modal(
@@ -270,6 +270,7 @@ def train_on_modal(
     
     # Load preprocessed features from cache
     print("Loading cached features...")
+    import os
     import numpy as np
     import pandas as pd
     from sklearn.model_selection import train_test_split
@@ -330,8 +331,8 @@ def train_on_modal(
     )
     
     criterion = nn.MSELoss()
-    # Use fused Adam for better performance on CUDA
-    optimizer = optim.Adam(model.parameters(), lr=lr, fused=True)
+    # Note: fused=True is incompatible with GradScaler, so we use standard Adam
+    optimizer = optim.Adam(model.parameters(), lr=lr)
     
     # Add learning rate scheduler - using validation loss
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -353,8 +354,8 @@ def train_on_modal(
     best_loss = float('inf')
     
     # Use automatic mixed precision (AMP) for faster training
-    from torch.cuda.amp import autocast, GradScaler
-    scaler = GradScaler()
+    from torch.amp import autocast, GradScaler
+    scaler = GradScaler('cuda')
     use_amp = True
     
     if os.path.exists(checkpoint_path):
@@ -388,6 +389,9 @@ def train_on_modal(
     # Enable cudnn benchmarking for faster conv operations
     torch.backends.cudnn.benchmark = True
     
+    # Keep reference to original model for saving
+    original_model = model
+    
     # Use torch.compile for JIT optimization (PyTorch 2.0+)
     try:
         model = torch.compile(model, mode='max-autotune')
@@ -418,7 +422,7 @@ def train_on_modal(
             optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
             
             # Use automatic mixed precision
-            with autocast():
+            with autocast(device_type='cuda'):
                 outputs = model(features).squeeze()
                 loss = criterion(outputs, targets)
             
@@ -457,7 +461,7 @@ def train_on_modal(
                 features = features.to(device, non_blocking=True)
                 targets = targets.to(device, non_blocking=True).view(-1)
                 
-                with autocast():
+                with autocast(device_type='cuda'):
                     outputs = model(features).squeeze()
                     loss = criterion(outputs, targets)
                 
@@ -480,7 +484,7 @@ def train_on_modal(
         if (epoch + 1) % 5 == 0:
             with torch.no_grad():
                 sample_features = next(iter(train_loader))[0].to(device, non_blocking=True)
-                with autocast():
+                with autocast(device_type='cuda'):
                     acc_f = model.acc_friendly(sample_features)
                     acc_e = model.acc_enemy(sample_features)
                 dead_acc_f = (acc_f.max(dim=0)[0] == 0).sum().item()
@@ -495,7 +499,7 @@ def train_on_modal(
         if (epoch + 1) % 5 == 0 or (epoch + 1) == num_epochs:
             checkpoint = {
                 'epoch': epoch,
-                'model_state_dict': model.state_dict(),
+                'model_state_dict': original_model.state_dict(),  # Use original model, not compiled
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
                 'train_loss': avg_loss,
@@ -511,7 +515,7 @@ def train_on_modal(
         if avg_val_loss < best_loss:
             best_loss = avg_val_loss
             best_model_path = "/models/nnue_best.pt"
-            torch.save(model.state_dict(), best_model_path)
+            torch.save(original_model.state_dict(), best_model_path)  # Use original model
             print(f"  New best model saved with validation loss: {best_loss:.4f}")
         
         # Commit volume every 10 epochs (reduce I/O overhead)
@@ -521,7 +525,7 @@ def train_on_modal(
     
     # Save final model to volume
     model_path = "/models/nnue_state_dict.pt"
-    torch.save(model.state_dict(), model_path)
+    torch.save(original_model.state_dict(), model_path)  # Use original model
     print(f"\nTraining complete! Final model saved to {model_path}")
     print(f"Best validation loss achieved: {best_loss:.4f}")
     

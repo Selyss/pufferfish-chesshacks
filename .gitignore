@@ -4,3 +4,4 @@ venv
 .env.local
 .env
 devtools
+cached_features_v1.npz

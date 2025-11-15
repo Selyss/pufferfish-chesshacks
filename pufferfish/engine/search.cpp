@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iostream>
 
 namespace pf
 {
@@ -22,6 +23,22 @@ namespace pf
 
     static int qsearch(Position &pos, SearchContext &ctx, int alpha, int beta, int ply);
     static int alphabeta(Position &pos, SearchContext &ctx, int depth, int alpha, int beta, int ply, NodeType nodeType, Line &pv);
+
+    static inline bool is_draw_by_50move(const Position &pos)
+    {
+        return pos.halfmove_clock >= 100; // 50 full moves without pawn move or capture
+    }
+
+    static inline bool is_draw_by_repetition(const Position &pos, const SearchContext &ctx)
+    {
+        // Scan back in steps of two plies (same side to move) for identical keys
+        for (int i = ctx.repLen - 2; i >= 0; i -= 2)
+        {
+            if (ctx.repStack[i] == pos.key)
+                return true;
+        }
+        return false;
+    }
 
     static void order_moves(const Position &pos, SearchContext &ctx, const MoveList &raw, MoveList &ordered, Move ttMove, Move prevBest, int ply)
     {
@@ -74,6 +91,8 @@ namespace pf
         if (ctx.limits.time_ms)
             ctx.tm.alloc_ms = ctx.limits.time_ms;
 
+        ctx.repLen = 0; // initialize repetition stack
+
         SearchResult result;
         Line rootPV;
         int alpha = -INF_SCORE;
@@ -91,6 +110,9 @@ namespace pf
 
             if (depth > 1 && result.score > -INF_SCORE && result.score < INF_SCORE)
             {
+                // New generation for this search to improve TT replacement heuristics
+                if (ctx.tt)
+                    ctx.tt->bump_generation();
                 scoreLo = result.score - window;
                 scoreHi = result.score + window;
             }
@@ -124,6 +146,17 @@ namespace pf
             result.score = score;
             result.depth = depth;
             rootPV = pv;
+
+            // Log simple search info to stderr for visibility
+            std::uint64_t elapsed = now_ms() - start;
+            std::uint64_t nodes = ctx.stats.nodes + ctx.stats.qnodes;
+            std::uint64_t nps = elapsed ? (nodes * 1000ull) / elapsed : 0ull;
+            std::cerr << "info depth " << depth
+                      << " score " << score
+                      << " nodes " << nodes
+                      << " time_ms " << elapsed
+                      << " nps " << nps
+                      << std::endl;
         }
 
         (void)rootPV; // could be logged/used for UI
@@ -140,8 +173,20 @@ namespace pf
 
     static int qsearch(Position &pos, SearchContext &ctx, int alpha, int beta, int ply)
     {
+        if (ctx.repLen < MAX_PLY)
+            ctx.repStack[ctx.repLen++] = pos.key;
+
+        if (is_draw_by_50move(pos) || is_draw_by_repetition(pos, ctx))
+        {
+            --ctx.repLen;
+            return DRAW_SCORE;
+        }
+
         if (should_abort(ctx))
+        {
+            --ctx.repLen;
             return 0;
+        }
         ++ctx.stats.qnodes;
 
         const bool inCheck = pos.in_check(pos.side_to_move);
@@ -166,7 +211,11 @@ namespace pf
             generate_captures(pos, moves);
         }
         if (moves.count == 0)
-            return inCheck ? -MATE_SCORE + ply : standPat;
+        {
+            int ret = inCheck ? -MATE_SCORE + ply : standPat;
+            --ctx.repLen;
+            return ret;
+        }
 
         order_moves(pos, ctx, moves, ordered, MOVE_NONE, MOVE_NONE, ply);
 
@@ -191,29 +240,60 @@ namespace pf
             int score = -qsearch(pos, ctx, -beta, -alpha, ply + 1);
             pos.undo_move(u);
             if (score >= beta)
+            {
+                --ctx.repLen;
                 return score;
+            }
             if (score > alpha)
                 alpha = score;
         }
+        --ctx.repLen;
         return alpha;
     }
 
     static int alphabeta(Position &pos, SearchContext &ctx, int depth, int alpha, int beta, int ply, NodeType nodeType, Line &pv)
     {
+        if (ctx.repLen < MAX_PLY)
+            ctx.repStack[ctx.repLen++] = pos.key;
+
         if (ply >= MAX_PLY - 1)
-            return ctx.nn->evaluate(pos);
+        {
+            int v = ctx.nn->evaluate(pos);
+            --ctx.repLen;
+            return v;
+        }
 
         if (should_abort(ctx))
+        {
+            --ctx.repLen;
             return 0;
+        }
+
+        if (is_draw_by_50move(pos) || is_draw_by_repetition(pos, ctx))
+        {
+            --ctx.repLen;
+            return DRAW_SCORE;
+        }
 
         bool inCheck = pos.in_check(pos.side_to_move);
         if (inCheck)
             ++depth; // check extension
 
         if (depth <= 0)
-            return qsearch(pos, ctx, alpha, beta, ply);
+        {
+            int v = ctx.use_qsearch ? qsearch(pos, ctx, alpha, beta, ply) : ctx.nn->evaluate(pos);
+            --ctx.repLen;
+            return v;
+        }
 
         ++ctx.stats.nodes;
+        // Periodically decay history to prevent runaway growth
+        if ((ctx.stats.nodes & 0x0FFF) == 0)
+        {
+            for (int p = 0; p < PIECE_NB; ++p)
+                for (int s = 0; s < 64; ++s)
+                    ctx.history[p][s] >>= 1;
+        }
 
         int alphaOrig = alpha;
         TTEntry tte;
@@ -223,13 +303,19 @@ namespace pf
             ttMove = tte.best;
             int tscore = tte.score;
             if (tte.bound == BOUND_EXACT)
+            {
+                --ctx.repLen;
                 return tscore;
+            }
             if (tte.bound == BOUND_LOWER && tscore > alpha)
                 alpha = tscore;
             else if (tte.bound == BOUND_UPPER && tscore < beta)
                 beta = tscore;
             if (alpha >= beta)
+            {
+                --ctx.repLen;
                 return tscore;
+            }
         }
 
         // Null move pruning
@@ -242,7 +328,10 @@ namespace pf
             int score = -alphabeta(pos, ctx, depth - R, -beta, -beta + 1, ply + 1, NODE_NON_PV, pv);
             pos.undo_move(u);
             if (score >= beta)
+            {
+                --ctx.repLen;
                 return score;
+            }
         }
 
         MoveList moves, ordered;
@@ -250,7 +339,11 @@ namespace pf
         if (moves.count == 0)
         {
             if (inCheck)
+            {
+                --ctx.repLen;
                 return -MATE_SCORE + ply;
+            }
+            --ctx.repLen;
             return DRAW_SCORE;
         }
 
@@ -339,6 +432,7 @@ namespace pf
         if (ctx.tt)
             ctx.tt->store(pos.key, depth, bestScore, bound, bestMove, ply);
 
+        --ctx.repLen;
         return bestScore;
     }
 
