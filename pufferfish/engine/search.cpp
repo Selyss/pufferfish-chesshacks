@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iostream>
 
 namespace pf
 {
@@ -145,6 +146,17 @@ namespace pf
             result.score = score;
             result.depth = depth;
             rootPV = pv;
+
+            // Log simple search info to stderr for visibility
+            std::uint64_t elapsed = now_ms() - start;
+            std::uint64_t nodes = ctx.stats.nodes + ctx.stats.qnodes;
+            std::uint64_t nps = elapsed ? (nodes * 1000ull) / elapsed : 0ull;
+            std::cerr << "info depth " << depth
+                      << " score " << score
+                      << " nodes " << nodes
+                      << " time_ms " << elapsed
+                      << " nps " << nps
+                      << std::endl;
         }
 
         (void)rootPV; // could be logged/used for UI
@@ -269,7 +281,7 @@ namespace pf
 
         if (depth <= 0)
         {
-            int v = qsearch(pos, ctx, alpha, beta, ply);
+            int v = ctx.use_qsearch ? qsearch(pos, ctx, alpha, beta, ply) : ctx.nn->evaluate(pos);
             --ctx.repLen;
             return v;
         }

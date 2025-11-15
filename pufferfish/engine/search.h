@@ -25,6 +25,7 @@ namespace pf
         NNEvaluator *nn = nullptr;
         TimeManager tm;
         SearchLimits limits;
+        bool use_qsearch = true;
 
         Move killers[2][MAX_PLY]{};
         int history[PIECE_NB][64]{};
