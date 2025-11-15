@@ -199,11 +199,12 @@ int main(int argc, char **argv)
     Position pos;
     pos.set_startpos();
 
-    // Parse CLI args: --fen <6 tokens>, --depth N, --movetime ms, --tt MB|--hash MB, --no-tt, --no-qsearch
+    // Parse CLI args: --fen <6 tokens>, --depth N, --movetime ms, --timeleft ms, --tt MB|--hash MB, --no-tt, --no-qsearch
     std::string fen;
     int depth = 5;
     int movetime = 0;
-    int ttMB = 64; // default TT size in megabytes
+    long long timeleft = 0; // total time remaining (ms)
+    int ttMB = 64;          // default TT size in megabytes
     // int perftDepth = 0; // disabled
     bool flag_no_tt = false;
     bool flag_no_qsearch = false;
@@ -225,6 +226,10 @@ int main(int argc, char **argv)
         else if (a == "--movetime" && i + 1 < argc)
         {
             movetime = std::max(0, std::atoi(argv[++i]));
+        }
+        else if (a == "--timeleft" && i + 1 < argc)
+        {
+            timeleft = std::max(0, std::atoi(argv[++i]));
         }
         else if ((a == "--tt" || a == "--hash") && i + 1 < argc)
         {
@@ -310,7 +315,34 @@ int main(int argc, char **argv)
     ctx.tt = flag_no_tt ? nullptr : &tt;
     ctx.nn = static_cast<NNEvaluator *>(&nn);
     ctx.use_qsearch = !flag_no_qsearch;
-    if (movetime > 0)
+    // Time management: prefer --timeleft. Else use fixed --movetime or depth.
+    if (timeleft > 0)
+    {
+        ctx.limits.time_left_ms = static_cast<std::uint64_t>(timeleft);
+        // Estimate moves-to-go (MTG) by phase using fullmove number
+        int fm = pos.fullmove_number;
+        int mtg = 20;
+        if (fm <= 15)
+            mtg = 28;
+        else if (fm <= 35)
+            mtg = 20;
+        else
+            mtg = 12;
+        const double fmax = 0.15; // spend at most 15% of remaining
+        const int k = 6;
+        std::uint64_t reserve = (std::uint64_t)std::min<long long>(4000, (long long)(timeleft * 0.1));
+        std::uint64_t safeLeft = (timeleft > (long long)reserve) ? (timeleft - reserve) : (std::uint64_t)std::max(0ll, timeleft - 1000);
+        std::uint64_t byMtg = safeLeft / std::max(1, (mtg + k));
+        std::uint64_t byFrac = (std::uint64_t)(timeleft * fmax);
+        std::uint64_t alloc = std::min<std::uint64_t>(byMtg, byFrac);
+        const std::uint64_t tmin = 20;
+        if (alloc < tmin)
+            alloc = std::min<std::uint64_t>(safeLeft, std::max<std::uint64_t>(tmin, safeLeft / 10));
+        ctx.limits.time_ms = alloc;
+        ctx.limits.depth = 0;
+        std::cerr << "info time_left_ms " << timeleft << " mtg " << mtg << " reserve " << reserve << " alloc_ms " << alloc << std::endl;
+    }
+    else if (movetime > 0)
     {
         ctx.limits.time_ms = static_cast<std::uint64_t>(movetime);
         ctx.limits.depth = 0;

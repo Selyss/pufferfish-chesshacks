@@ -22,13 +22,22 @@ def find_engine() -> str | None:
     return shutil.which('pufferfish')
 
 
-def call_engine(fen: str, movetime_ms: int = 1000, timeout_s: float | None = None) -> str | None:
+def call_engine(
+    fen: str,
+    movetime_ms: int | None = None,
+    timeleft_ms: int | None = None,
+    timeout_s: float | None = None,
+) -> str | None:
     exe = find_engine()
     if not exe:
         return None
     # Pass FEN as six separate CLI tokens expected by the C++ program
     fen_tokens = fen.split()
-    cmd = [exe, '--fen', *fen_tokens, '--movetime', str(movetime_ms)]
+    cmd = [exe, '--fen', *fen_tokens]
+    if timeleft_ms is not None and timeleft_ms > 0:
+        cmd += ['--timeleft', str(timeleft_ms)]
+    elif movetime_ms is not None:
+        cmd += ['--movetime', str(movetime_ms)]
     # Optional tuning via environment variables
     tt_mb = os.getenv('PUFFERFISH_TT_MB')
     if tt_mb and tt_mb.isdigit():
@@ -61,7 +70,8 @@ def call_engine(fen: str, movetime_ms: int = 1000, timeout_s: float | None = Non
 def test_func(ctx: GameContext):
     # Try to call the native pufferfish engine with current FEN
     fen = ctx.board.fen()
-    best_uci = call_engine(fen, movetime_ms=1000)
+    # Prefer total time left if provided by the framework; else use a default per-move time
+    best_uci = call_engine(fen, timeleft_ms=ctx.timeLeft if ctx.timeLeft and ctx.timeLeft > 0 else None, movetime_ms=1000)
     if best_uci:
         try:
             mv = Move.from_uci(best_uci)
