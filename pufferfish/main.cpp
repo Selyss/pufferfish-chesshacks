@@ -233,6 +233,7 @@ int main(int argc, char **argv)
 
     NNUEEvaluator nn;
     const char *weightPaths[] = {
+        "C:\\Users\\jtred\\code\\chesshacks\\my-chesshacks-bot\\bot\\python\\nnue_weights.bin",
         "bot/python/nnue_weights.bin",
         "../bot/python/nnue_weights.bin",
         "../../bot/python/nnue_weights.bin",
