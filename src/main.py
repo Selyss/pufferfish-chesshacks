@@ -15,7 +15,7 @@ from .utils import GameContext, chess_manager
 class EngineConfig:
     checkpoint: str
     device: str = "cpu"
-    max_depth: int = 4
+    max_depth: int = 8
     quiescence_depth: int = 4
     temperature: float = 0.6
     time_fraction: float = 0.02
@@ -31,11 +31,11 @@ class SearchEngine:
         self._search: AlphaBetaSearch | None = None
 
     def _load_config(self) -> EngineConfig:
-        default_ckpt = Path(__file__).resolve().parent / "bot" / "checkpoints" / "nnue_epoch001.pt"
+        default_ckpt = Path(__file__).resolve().parent / "bot" / "checkpoints" / "nnue_epoch004.pt"
         checkpoint = os.getenv("CHESSBOT_CHECKPOINT", str(default_ckpt))
         device = os.getenv("CHESSBOT_DEVICE", "cpu")
-        max_depth = int(os.getenv("CHESSBOT_MAX_DEPTH", "4"))
-        quiescence_depth = int(os.getenv("CHESSBOT_QUIESCENCE_DEPTH", "4"))
+        max_depth = int(os.getenv("CHESSBOT_MAX_DEPTH", "8"))
+        quiescence_depth = int(os.getenv("CHESSBOT_QUIESCENCE_DEPTH", "8"))
         temperature = float(os.getenv("CHESSBOT_TEMPERATURE", "0.6"))
         time_fraction = float(os.getenv("CHESSBOT_TIME_FRACTION", "0.02"))
         min_time_ms = int(os.getenv("CHESSBOT_MIN_TIME_MS", "100"))

@@ -38,10 +38,12 @@ class AlphaBetaSearch:
     def __init__(
         self,
         evaluator: NNUEEvaluator,
-        max_depth: int = 5,
+        max_depth: int = 6,
         quiescence_depth: int = 4,
         temperature: float = 0.6,
         tt_size: int = 200_000,
+        check_extension: bool = True,
+        quiescence_check_limit: int = 4,
     ) -> None:
         self.evaluator = evaluator
         self.max_depth = max_depth
@@ -53,6 +55,8 @@ class AlphaBetaSearch:
         self.tt_size = tt_size
         self.history_table: Dict[tuple, float] = defaultdict(float)
         self.killer_moves: List[List[Optional[chess.Move]]] = []
+        self.check_extension = check_extension
+        self.quiescence_check_limit = quiescence_check_limit
 
     def search(self, state: NNUEState, time_limit_ms: int) -> SearchResult:
         self.nodes = 0
@@ -148,6 +152,8 @@ class AlphaBetaSearch:
                 return value
 
         alpha_orig = alpha
+        if self.check_extension and depth > 0 and board.is_check():
+            depth += 1
         if depth == 0 or board.is_game_over():
             return self._quiescence(state, alpha, beta, ply, deadline, self.quiescence_depth)
 
@@ -207,6 +213,21 @@ class AlphaBetaSearch:
                 return beta
             if score > alpha:
                 alpha = score
+        checks_explored = 0
+        if self.quiescence_check_limit > 0:
+            for move in board.generate_legal_moves():
+                if board.is_capture(move) or not board.gives_check(move):
+                    continue
+                state.push(move)
+                score = -self._quiescence(state, -beta, -alpha, ply + 1, deadline, depth_left - 1)
+                state.pop()
+                if score >= beta:
+                    return beta
+                if score > alpha:
+                    alpha = score
+                checks_explored += 1
+                if checks_explored >= self.quiescence_check_limit:
+                    break
         return alpha
 
     def _ordered_captures(self, state: NNUEState) -> List[chess.Move]:
