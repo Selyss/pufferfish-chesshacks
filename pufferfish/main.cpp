@@ -240,15 +240,35 @@ int main(int argc, char **argv)
     // Load SimpleNNUE residual model (residual-nnue-v1 JSON+records)
     SimpleNNUEEvaluator snn;
     const char *simplePaths[] = {
-        "bot/python/nnue_residual_rebalanced_preprocessed.bin",
-        "../bot/python/nnue_residual_rebalanced_preprocessed.bin",
-        "../../bot/python/nnue_residual_rebalanced_preprocessed.bin",
-        "../../../bot/python/nnue_residual_rebalanced_preprocessed.bin",
+        "bot/python/nnue_residual.bin",
+        "../bot/python/nnue_residual.bin",
+        "../../bot/python/nnue_residual.bin",
+        "../../../bot/python/nnue_residual.bin",
+        "nnue_residual.bin",
+        "../nnue_residual.bin",
     };
+    
+    std::cout << "[INFO] Searching for NNUE binary file..." << std::endl;
+    std::cout.flush();
     bool loaded = false;
     const char *loadedPath = nullptr;
     for (const char *p : simplePaths)
     {
+        std::cout << "[INFO] Trying: " << p;
+        std::cout.flush();
+        
+        // Check if file exists
+        std::FILE *test = std::fopen(p, "rb");
+        if (test) {
+            std::fclose(test);
+            std::cout << " (file exists)";
+            std::cout.flush();
+        } else {
+            std::cout << " (not found)";
+            std::cout.flush();
+        }
+        std::cout << std::endl;
+        
         if (snn.load(p))
         {
             loaded = true;
@@ -258,11 +278,15 @@ int main(int argc, char **argv)
     }
     if (!loaded)
     {
+        std::cout << "[ERROR] NNUE loading failed!" << std::endl;
+        std::cout << "[ERROR] Could not find or load NNUE file at any searched path" << std::endl;
+        std::cout << "[ERROR] Please run: python -m src.bot.export_int16 <checkpoint.pt> bot/python/nnue_residual.bin" << std::endl;
         std::cerr << "error nnue_load_failed" << std::endl;
         return 2;
     }
     else
     {
+        std::cout << "[SUCCESS] Loaded NNUE from: " << loadedPath << std::endl;
         std::cerr << "info nnue_loaded " << loadedPath << " simple" << std::endl;
     }
 
