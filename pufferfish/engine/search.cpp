@@ -7,6 +7,22 @@
 
 namespace pf
 {
+    static inline int piece_mvv_value(int piece)
+    {
+        // Use conventional MVV values; indices are pf::Piece enums.
+        static const int v[PIECE_NB] = {
+            0,   // NO_PIECE
+            100, // W_PAWN
+            320, // W_KNIGHT
+            330, // W_BISHOP
+            500, // W_ROOK
+            900, // W_QUEEN
+            20000, // W_KING (avoid preferring captures of king; large for ordering only)
+            100, 320, 330, 500, 900, 20000 // black pieces
+        };
+        if (piece < 0 || piece >= PIECE_NB) return 0;
+        return v[piece];
+    }
 
     static std::uint64_t now_ms()
     {
@@ -40,16 +56,25 @@ namespace pf
                 s += 1000000;
             if (m == prevBest)
                 s += 900000;
-            if (move_flags(m) & FLAG_CAPTURE)
+            const std::uint32_t flags = move_flags(m);
+            const bool isCapture = (flags & FLAG_CAPTURE) != 0;
+            const bool isPromotion = (flags & FLAG_PROMOTION) != 0;
+            if (isCapture)
             {
-                // Simple MVV-LVA using piece codes
+                // MVV-LVA with real values
                 int victim = pos.board[to_sq(m)];
                 int attacker = move_piece(m);
-                s += 100000 + (victim * 10 - attacker);
+                s += 200000 + piece_mvv_value(victim) - (piece_mvv_value(attacker) / 10);
+                if (isPromotion)
+                    s += 5000; // promote-capture is even better
             }
             else
             {
-                if (m == ctx.killers[0][ply])
+                if (isPromotion)
+                {
+                    s += 120000; // non-capture promotions are high priority
+                }
+                else if (m == ctx.killers[0][ply])
                     s += 80000;
                 else if (m == ctx.killers[1][ply])
                     s += 70000;
@@ -84,6 +109,11 @@ namespace pf
 
         for (int depth = 1; depth <= maxDepth; ++depth)
         {
+            // Light history decay each iteration to keep values bounded
+            for (int p = 0; p < PIECE_NB; ++p)
+                for (int sq = 0; sq < 64; ++sq)
+                    ctx.history[p][sq] -= (ctx.history[p][sq] >> 3);
+
             Line pv;
             int window = 20; // aspiration window in cp
             int scoreLo = alpha;
