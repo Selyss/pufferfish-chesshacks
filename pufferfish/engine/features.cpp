@@ -145,7 +145,11 @@ namespace pf
         {
             // Count bits in piece bitboard
             Bitboard bb = pos.pieceBB[p];
+#ifdef _MSC_VER
             return (int)__popcnt64(bb);
+#else
+            return __builtin_popcountll(bb);
+#endif
         };
         int wp = count_piece(W_PAWN), bp = count_piece(B_PAWN);
         int wn = count_piece(W_KNIGHT), bn = count_piece(B_KNIGHT);

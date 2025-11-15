@@ -97,7 +97,13 @@ namespace pf
     {
         // Simple phase-based MTG: opening 28, middlegame 20, endgame 12
         auto cnt = [&](Piece p)
-        { return (int)__popcnt64(pos.pieceBB[p]); };
+        { 
+#ifdef _MSC_VER
+            return (int)__popcnt64(pos.pieceBB[p]);
+#else
+            return __builtin_popcountll(pos.pieceBB[p]);
+#endif
+        };
         int nonPawnMaterial = (cnt(W_KNIGHT) + cnt(B_KNIGHT)) * 3 + (cnt(W_BISHOP) + cnt(B_BISHOP)) * 3 +
                               (cnt(W_ROOK) + cnt(B_ROOK)) * 5 + (cnt(W_QUEEN) + cnt(B_QUEEN)) * 9;
         int mtg = 20;
