@@ -124,6 +124,13 @@ class SearchEngine:
         budget = self._allocate_time(ctx.timeLeft)
         result = self._search.search(state, budget)
         ctx.logProbabilities(result.probabilities)
+        
+        # Final legality check before returning
+        if result.move not in ctx.board.legal_moves:
+            raise ValueError(
+                f"Search returned illegal move {result.move.uci()} in position {ctx.board.fen()}"
+            )
+        
         return result.move
 
     def reset(self) -> None:

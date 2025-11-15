@@ -86,6 +86,14 @@ class AlphaBetaSearch:
             best_score = 0.0
             best_probabilities = {best_move: 1.0}
 
+        # Final sanity check: verify the move is legal
+        if best_move not in state.board.legal_moves:
+            legal_moves = list(state.board.generate_legal_moves())
+            if not legal_moves:
+                raise ValueError("No legal moves available.")
+            best_move = legal_moves[0]
+            best_probabilities = {best_move: 1.0}
+
         return SearchResult(
             move=best_move,
             score=best_score,
