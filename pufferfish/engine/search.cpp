@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iostream>
+#include "pst.h"
 
 namespace pf
 {
@@ -61,27 +62,38 @@ namespace pf
             const std::uint32_t flags = move_flags(m);
             const bool isCapture = (flags & FLAG_CAPTURE) != 0;
             const bool isPromotion = (flags & FLAG_PROMOTION) != 0;
+            int from = from_sq(m);
+            int to = to_sq(m);
+            int mpiece = move_piece(m);
             if (isCapture)
             {
                 // MVV-LVA with real values
                 int victim = pos.board[to_sq(m)];
-                int attacker = move_piece(m);
+                int attacker = mpiece;
                 s += 200000 + piece_mvv_value(victim) - (piece_mvv_value(attacker) / 10);
                 if (isPromotion)
                     s += 5000; // promote-capture is even better
+                // Small PST delta to prefer captures improving piece placement
+                s += (pst_value(Piece(mpiece), to) - pst_value(Piece(mpiece), from));
             }
             else
             {
                 if (isPromotion)
                 {
                     s += 120000; // non-capture promotions are high priority
+                    // Prefer promotion square quality (assume queen for simplicity)
+                    s += pst_value(W_QUEEN, to);
                 }
                 else if (m == ctx.killers[0][ply])
                     s += 80000;
                 else if (m == ctx.killers[1][ply])
                     s += 70000;
                 else
-                    s += ctx.history[move_piece(m)][to_sq(m)];
+                {
+                    s += ctx.history[mpiece][to];
+                    // PST delta for quiet moves
+                    s += (pst_value(Piece(mpiece), to) - pst_value(Piece(mpiece), from));
+                }
             }
             buf[i] = {m, s};
         }
@@ -97,7 +109,7 @@ namespace pf
     {
         // Simple phase-based MTG: opening 28, middlegame 20, endgame 12
         auto cnt = [&](Piece p)
-        { 
+        {
 #ifdef _MSC_VER
             return (int)__popcnt64(pos.pieceBB[p]);
 #else
