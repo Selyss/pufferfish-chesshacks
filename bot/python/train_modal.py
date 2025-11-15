@@ -30,7 +30,7 @@ volume = modal.Volume.from_name("pufferfish-models", create_if_missing=True)
     volumes={"/models": volume},
 )
 def train_on_modal(
-    num_epochs: int = 5,
+    num_epochs: int = 10,
     batch_size: int = 1024,
     lr: float = 1e-3,
     max_samples: int = None,
@@ -150,6 +150,15 @@ def train_on_modal(
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
+    # Add learning rate scheduler
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min', 
+        factor=0.5,
+        patience=3,
+        min_lr=1e-6
+    )
+    
     # Checkpoint paths
     checkpoint_dir = "/models/checkpoints"
     import os
@@ -158,57 +167,99 @@ def train_on_modal(
     
     # Try to resume from checkpoint
     start_epoch = 0
+    best_loss = float('inf')
+    
     if os.path.exists(checkpoint_path):
         print(f"Found checkpoint at {checkpoint_path}, resuming training...")
         checkpoint = torch.load(checkpoint_path, map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if 'scheduler_state_dict' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         start_epoch = checkpoint['epoch'] + 1
-        print(f"Resuming from epoch {start_epoch}")
+        best_loss = checkpoint.get('best_loss', float('inf'))
+        print(f"Resuming from epoch {start_epoch}, best loss: {best_loss:.4f}")
     else:
         print("No checkpoint found, starting training from scratch")
     
     # Training loop
-    model.train()
-    best_loss = float('inf')
-    
     for epoch in range(start_epoch, num_epochs):
-        total_loss = 0.0
+        model.train()
+        epoch_loss = 0.0
+        num_batches = 0
+        grad_norms = []
+        
         for batch_idx, (features, targets) in enumerate(train_loader):
             features = features.to(device)
-            targets = targets.to(device).view(-1, 1)
+            targets = targets.to(device).view(-1)
+            
+            # Diagnostic on first batch of first epoch
+            if epoch == start_epoch and batch_idx == 0:
+                print(f"\nData diagnostics:")
+                print(f"  Features shape: {features.shape}")
+                print(f"  Targets range: [{targets.min().item():.2f}, {targets.max().item():.2f}]")
+                print(f"  Targets mean: {targets.mean().item():.2f}, std: {targets.std().item():.2f}")
             
             optimizer.zero_grad()
-            outputs = model(features)
+            outputs = model(features).squeeze()
             loss = criterion(outputs, targets)
             loss.backward()
+            
+            # Gradient clipping to prevent exploding gradients
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            grad_norms.append(grad_norm.item())
+            
             optimizer.step()
             
-            total_loss += loss.item() * features.size(0)
+            epoch_loss += loss.item()
+            num_batches += 1
             
             # Print progress every 100 batches
             if (batch_idx + 1) % 100 == 0:
-                print(f"Epoch {epoch + 1}/{num_epochs}, Batch {batch_idx + 1}/{len(train_loader)}, Loss: {loss.item():.4f}")
+                avg_grad = sum(grad_norms[-100:]) / min(100, len(grad_norms))
+                print(f"Epoch {epoch + 1}/{num_epochs}, Batch {batch_idx + 1}/{len(train_loader)}, "
+                      f"Loss: {loss.item():.4f}, Avg Grad Norm: {avg_grad:.4f}")
         
-        avg_loss = total_loss / len(train_loader.dataset)
-        print(f"Epoch {epoch + 1}/{num_epochs}, Average Loss: {avg_loss:.4f}")
+        avg_loss = epoch_loss / num_batches
+        avg_grad_norm = sum(grad_norms) / len(grad_norms)
+        current_lr = optimizer.param_groups[0]['lr']
+        
+        print(f"\nEpoch {epoch + 1}/{num_epochs} completed:")
+        print(f"  Average Loss: {avg_loss:.4f}")
+        print(f"  Average Gradient Norm: {avg_grad_norm:.4f}")
+        print(f"  Learning Rate: {current_lr:.6f}")
+        
+        # Check for dead neurons
+        with torch.no_grad():
+            sample_features = next(iter(train_loader))[0].to(device)
+            acc_f = model.acc_friendly(sample_features)
+            acc_e = model.acc_enemy(sample_features)
+            dead_acc_f = (acc_f.max(dim=0)[0] == 0).sum().item()
+            dead_acc_e = (acc_e.max(dim=0)[0] == 0).sum().item()
+            if dead_acc_f > 0 or dead_acc_e > 0:
+                print(f"  Warning: {dead_acc_f} dead friendly neurons, {dead_acc_e} dead enemy neurons")
+        
+        # Update learning rate scheduler
+        scheduler.step(avg_loss)
         
         # Save checkpoint after each epoch
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
             'loss': avg_loss,
+            'best_loss': best_loss,
         }
         torch.save(checkpoint, checkpoint_path)
-        print(f"Checkpoint saved: epoch {epoch + 1}")
+        print(f"  Checkpoint saved: epoch {epoch + 1}")
         
         # Save best model separately
         if avg_loss < best_loss:
             best_loss = avg_loss
             best_model_path = "/models/nnue_best.pt"
             torch.save(model.state_dict(), best_model_path)
-            print(f"New best model saved with loss: {best_loss:.4f}")
+            print(f"  New best model saved with loss: {best_loss:.4f}")
         
         # Commit volume after each epoch to persist checkpoints
         volume.commit()
@@ -216,7 +267,8 @@ def train_on_modal(
     # Save final model to volume
     model_path = "/models/nnue_state_dict.pt"
     torch.save(model.state_dict(), model_path)
-    print(f"Final model saved to {model_path}")
+    print(f"\nTraining complete! Final model saved to {model_path}")
+    print(f"Best loss achieved: {best_loss:.4f}")
     
     # Final commit
     volume.commit()
@@ -226,7 +278,7 @@ def train_on_modal(
 
 @app.local_entrypoint()
 def main(
-    num_epochs: int = 5,
+    num_epochs: int = 10,
     batch_size: int = 1024,
     lr: float = 1e-3,
     max_samples: int = None,
