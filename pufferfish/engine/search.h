@@ -30,6 +30,10 @@ namespace pf
         int history[PIECE_NB][64]{};
 
         SearchStats stats;
+
+        // Repetition detection along the current search line
+        Key repStack[MAX_PLY]{};
+        int repLen = 0;
     };
 
     struct SearchResult
