@@ -8,7 +8,7 @@ constexpr int SQUARES = 64;
 constexpr int PIECE_TYPES = 6;
 constexpr int COLORS = 2;
 
-constexpr int FEATURE_DIM = 100000;  // placeholder, set correctly
+constexpr int FEATURE_DIM = 768;
 constexpr int ACC_UNITS   = 256;     // per side
 constexpr int HIDDEN1     = 32;
 constexpr int HIDDEN2     = 32;
