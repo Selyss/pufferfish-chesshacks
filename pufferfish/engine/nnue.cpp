@@ -87,23 +87,7 @@ namespace pf
         return true;
     }
 
-    inline void NNUE::add_feature(int feature_index, int sign)
-    {
-        const int stride = 2 * ACC_UNITS;
-        const Weight *wf = &w_acc[static_cast<std::size_t>(feature_index) * stride];
-        const Weight *we = wf + ACC_UNITS;
-
-        Accum *acc_f = accumulator.friendly.data();
-        Accum *acc_e = accumulator.enemy.data();
-
-        const Accum s = static_cast<Accum>(sign);
-
-        for (int i = 0; i < ACC_UNITS; ++i)
-        {
-            acc_f[i] += s * static_cast<Accum>(wf[i]);
-            acc_e[i] += s * static_cast<Accum>(we[i]);
-        }
-    }
+    // add_feature defined inline in header
 
     int NNUE::evaluate() const
     {

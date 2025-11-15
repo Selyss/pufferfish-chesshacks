@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <array>
+#include <string>
 
 #include "types.h"
 #include "bitboard.h"
@@ -51,6 +52,9 @@ namespace pf
         Position();
 
         void set_startpos();
+
+        // Load a position from FEN. Returns true on success.
+        bool set_fen(const std::string &fen);
 
         bool is_square_attacked(int sq, Color by) const;
 

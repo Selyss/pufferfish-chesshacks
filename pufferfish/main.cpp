@@ -1,6 +1,8 @@
 // Minimal runner: initialize engine, run a short search from startpos.
 
 #include <iostream>
+#include <sstream>
+#include <string>
 
 #include "engine/types.h"
 #include "engine/bitboard.h"
@@ -12,23 +14,183 @@
 
 using namespace pf;
 
-// struct DummyNN : NNEvaluator
-// {
-//     int evaluate(const Position &pos) override
-//     {
-//         // Very crude material-only eval as a stand-in for NN.
-//         static const int val[PIECE_NB] = {
-//             0,
-//             100, 320, 330, 500, 900, 0,
-//             -100, -320, -330, -500, -900, 0};
-//         int score = 0;
-//         for (int sq = 0; sq < 64; ++sq)
-//             score += val[pos.board[sq]];
-//         return (pos.side_to_move == WHITE ? score : -score);
-//     }
-// };
+struct MaterialEvaluator : NNEvaluator
+{
+    int evaluate(const Position &pos) override
+    {
+        static const int val[PIECE_NB] = {
+            0,
+            100, 320, 330, 500, 900, 0,
+            -100, -320, -330, -500, -900, 0};
+        int score = 0;
+        for (int sq = 0; sq < 64; ++sq)
+            score += val[pos.board[sq]];
+        return (pos.side_to_move == WHITE ? score : -score);
+    }
+};
 
-int main()
+static std::string sq_to_str(int sq)
+{
+    const char files[] = "abcdefgh";
+    std::string s;
+    s += files[sq & 7];
+    s += char('1' + (sq >> 3));
+    return s;
+}
+
+static char promo_char_from_piece(int promoPiece)
+{
+    int typeIdx = 0;
+    if (promoPiece >= W_PAWN && promoPiece <= W_KING)
+        typeIdx = promoPiece - W_PAWN;
+    else if (promoPiece >= B_PAWN && promoPiece <= B_KING)
+        typeIdx = promoPiece - B_PAWN;
+    else
+        return '\0';
+    switch (typeIdx)
+    {
+    case KNIGHT:
+        return 'n';
+    case BISHOP:
+        return 'b';
+    case ROOK:
+        return 'r';
+    case QUEEN:
+        return 'q';
+    default:
+        return '\0';
+    }
+}
+
+static char piece_letter(Piece p)
+{
+    switch (p)
+    {
+    case W_KNIGHT:
+    case B_KNIGHT:
+        return 'N';
+    case W_BISHOP:
+    case B_BISHOP:
+        return 'B';
+    case W_ROOK:
+    case B_ROOK:
+        return 'R';
+    case W_QUEEN:
+    case B_QUEEN:
+        return 'Q';
+    case W_KING:
+    case B_KING:
+        return 'K';
+    default:
+        return '\0';
+    }
+}
+
+// Produce simple SAN for a legal move in the given position.
+static std::string move_to_san(Position &pos, Move m)
+{
+    if (m == MOVE_NONE)
+        return "--";
+    std::uint32_t flags = move_flags(m);
+    int from = from_sq(m);
+    int to = to_sq(m);
+    Piece p = Piece(move_piece(m));
+
+    // Castling
+    if (flags & FLAG_CASTLING)
+    {
+        bool kingSide = to > from;
+        std::string san = kingSide ? "O-O" : "O-O-O";
+        UndoState u;
+        pos.do_move(m, u);
+        bool check = pos.in_check(pos.side_to_move);
+        MoveList replies;
+        generate_moves(pos, replies);
+        filter_legal_moves(pos, replies);
+        bool mate = check && replies.count == 0;
+        pos.undo_move(u);
+        if (mate)
+            san += '#';
+        else if (check)
+            san += '+';
+        return san;
+    }
+
+    std::string san;
+    char pieceChar = piece_letter(p);
+    bool isPawn = (pieceChar == '\0');
+    bool isCapture = (flags & FLAG_CAPTURE) || (flags & FLAG_ENPASSANT);
+
+    if (!isPawn)
+    {
+        // Disambiguation: find other same-type pieces that can reach 'to'.
+        Position tmp = pos; // copy
+        MoveList gen;
+        generate_moves(tmp, gen);
+        filter_legal_moves(tmp, gen);
+        bool needFile = false, needRank = false;
+        int fromFile = from & 7;
+        int fromRank = from >> 3;
+        for (int i = 0; i < gen.count; ++i)
+        {
+            Move om = gen.moves[i];
+            if (om == m)
+                continue;
+            if (to_sq(om) == to && move_piece(om) == move_piece(m))
+            {
+                int of = from_sq(om) & 7;
+                int orank = from_sq(om) >> 3;
+                if (of == fromFile)
+                    needRank = true;
+                if (orank == fromRank)
+                    needFile = true;
+                if (needFile && needRank)
+                    break;
+            }
+        }
+        san += pieceChar;
+        if (needFile)
+            san += char('a' + fromFile);
+        if (needRank)
+            san += char('1' + fromRank);
+    }
+    else if (isCapture)
+    {
+        // Pawn capture includes source file
+        san += char('a' + (from & 7));
+    }
+
+    if (isCapture)
+        san += 'x';
+    san += sq_to_str(to);
+
+    if (flags & FLAG_PROMOTION)
+    {
+        Piece promo = Piece(promo_piece(m));
+        char promoLetter = piece_letter(promo);
+        if (promoLetter)
+        {
+            san += '=';
+            san += promoLetter;
+        }
+    }
+
+    UndoState u;
+    pos.do_move(m, u);
+    bool givesCheck = pos.in_check(pos.side_to_move);
+    MoveList replies;
+    generate_moves(pos, replies);
+    filter_legal_moves(pos, replies);
+    bool mate = givesCheck && replies.count == 0;
+    pos.undo_move(u);
+    if (mate)
+        san += '#';
+    else if (givesCheck)
+        san += '+';
+    return san;
+}
+
+int main(int argc, char **argv)
 {
     init_zobrist();
     init_bitboards();
@@ -36,24 +198,60 @@ int main()
     Position pos;
     pos.set_startpos();
 
+    // Parse CLI args: --fen <6 tokens>, --depth N, --movetime ms
+    std::string fen;
+    int depth = 5;
+    int movetime = 0;
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string a = argv[i];
+        if (a == "--fen" && i + 6 <= argc)
+        {
+            std::ostringstream os;
+            os << argv[i + 1] << ' ' << argv[i + 2] << ' ' << argv[i + 3]
+               << ' ' << argv[i + 4] << ' ' << argv[i + 5] << ' ' << argv[i + 6];
+            fen = os.str();
+            i += 6;
+        }
+        else if (a == "--depth" && i + 1 < argc)
+        {
+            depth = std::max(1, std::atoi(argv[++i]));
+        }
+        else if (a == "--movetime" && i + 1 < argc)
+        {
+            movetime = std::max(0, std::atoi(argv[++i]));
+        }
+    }
+    if (!fen.empty())
+    {
+        pos.set_fen(fen);
+    }
+
     TranspositionTable tt;
     tt.resize(64); // 64 MB
 
     NNUEEvaluator nn;
-    nn.load("nnue_weights.bin");
+    bool has_nn = nn.load("nnue_weights.bin");
+    MaterialEvaluator mat;
 
     SearchContext ctx;
     ctx.tt = &tt;
-    ctx.nn = &nn;
-    ctx.limits.depth = 5;
-    ctx.limits.time_ms = 0; // depth-limited
+    ctx.nn = has_nn ? static_cast<NNEvaluator *>(&nn) : static_cast<NNEvaluator *>(&mat);
+    if (movetime > 0)
+    {
+        ctx.limits.time_ms = static_cast<std::uint64_t>(movetime);
+        ctx.limits.depth = 0;
+    }
+    else
+    {
+        ctx.limits.depth = depth;
+        ctx.limits.time_ms = 0;
+    }
 
     SearchResult res = search(pos, ctx);
 
-    std::cout << "bestmove from startpos: from " << from_sq(res.bestMove)
-              << " to " << to_sq(res.bestMove) << " score " << res.score
-              << " depth " << res.depth << " nodes " << ctx.stats.nodes
-              << " qnodes " << ctx.stats.qnodes << "\n";
+    std::string san = move_to_san(pos, res.bestMove);
+    std::cout << "bestmove " << san << "\n";
 
     return 0;
 }

@@ -4,6 +4,8 @@
 
 #include <cstring>
 #include <random>
+#include <sstream>
+#include <string>
 
 namespace pf
 {
@@ -98,6 +100,124 @@ namespace pf
                 key ^= Zobrist.piece[pc][sq];
         }
         key ^= Zobrist.castling[castling_rights];
+    }
+
+    static inline Piece piece_from_char(char c)
+    {
+        switch (c)
+        {
+        case 'P':
+            return W_PAWN;
+        case 'p':
+            return B_PAWN;
+        case 'N':
+            return W_KNIGHT;
+        case 'n':
+            return B_KNIGHT;
+        case 'B':
+            return W_BISHOP;
+        case 'b':
+            return B_BISHOP;
+        case 'R':
+            return W_ROOK;
+        case 'r':
+            return B_ROOK;
+        case 'Q':
+            return W_QUEEN;
+        case 'q':
+            return B_QUEEN;
+        case 'K':
+            return W_KING;
+        case 'k':
+            return B_KING;
+        default:
+            return NO_PIECE;
+        }
+    }
+
+    bool Position::set_fen(const std::string &fen)
+    {
+        *this = Position();
+
+        std::istringstream ss(fen);
+        std::string boardPart, stmPart, castlePart, epPart;
+        int halfmv = 0, fullmv = 1;
+        if (!(ss >> boardPart >> stmPart >> castlePart >> epPart >> halfmv >> fullmv))
+            return false;
+
+        int sq = 56; // start from a8
+        for (std::size_t i = 0; i < boardPart.size(); ++i)
+        {
+            char c = boardPart[i];
+            if (c == '/')
+            {
+                sq -= 16; // next rank down
+                continue;
+            }
+            if (c >= '1' && c <= '8')
+            {
+                sq += (c - '0');
+                continue;
+            }
+            Piece pc = piece_from_char(c);
+            if (pc == NO_PIECE || sq >= 64 || sq < 0)
+                return false;
+            board[sq] = pc;
+            pieceBB[pc] |= Bitboard(1) << sq;
+            Color col = (pc <= W_KING) ? WHITE : BLACK;
+            colorBB[col] |= Bitboard(1) << sq;
+            occupiedBB |= Bitboard(1) << sq;
+            ++sq;
+        }
+
+        side_to_move = (stmPart == "b" || stmPart == "B") ? BLACK : WHITE;
+
+        castling_rights = 0;
+        if (castlePart != "-")
+        {
+            for (char c : castlePart)
+            {
+                if (c == 'K')
+                    castling_rights |= 0b0001;
+                else if (c == 'Q')
+                    castling_rights |= 0b0010;
+                else if (c == 'k')
+                    castling_rights |= 0b0100;
+                else if (c == 'q')
+                    castling_rights |= 0b1000;
+            }
+        }
+
+        ep_square = -1;
+        if (epPart != "-")
+        {
+            if (epPart.size() == 2)
+            {
+                int file = epPart[0] - 'a';
+                int rank = epPart[1] - '1';
+                if (file >= 0 && file < 8 && rank >= 0 && rank < 8)
+                    ep_square = rank * 8 + file;
+            }
+        }
+
+        halfmove_clock = halfmv;
+        fullmove_number = (fullmv > 0 ? fullmv : 1);
+
+        // Recompute Zobrist key
+        key = 0;
+        for (int s = 0; s < 64; ++s)
+        {
+            Piece pc = board[s];
+            if (pc != NO_PIECE)
+                key ^= Zobrist.piece[pc][s];
+        }
+        key ^= Zobrist.castling[castling_rights];
+        if (ep_square != -1)
+            key ^= Zobrist.ep_file[ep_square & 7];
+        if (side_to_move == BLACK)
+            key ^= Zobrist.side;
+
+        return true;
     }
 
     bool Position::is_square_attacked(int sq, Color by) const
