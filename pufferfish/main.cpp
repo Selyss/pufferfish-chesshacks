@@ -10,6 +10,7 @@
 #include "engine/movegen.h"
 #include "engine/tt.h"
 #include "engine/nn_interface.h"
+#include "engine/simple_nnue.h"
 #include "engine/search.h"
 
 using namespace pf;
@@ -231,8 +232,16 @@ int main(int argc, char **argv)
     TranspositionTable tt;
     tt.resize(64); // 64 MB
 
+    // Prefer SimpleNNUE (795-dim residual MLP) if available; otherwise fall back to legacy NNUE
+    SimpleNNUEEvaluator snn;
     NNUEEvaluator nn;
-    const char *weightPaths[] = {
+    const char *simplePaths[] = {
+        "bot/python/simple_nnue.bin",
+        "../bot/python/simple_nnue.bin",
+        "../../bot/python/simple_nnue.bin",
+        "../../../bot/python/simple_nnue.bin",
+    };
+    const char *legacyPaths[] = {
         // Relative to project root
         "bot/python/nnue_weights.bin",
         // Common working dirs: repo root, pufferfish/, pufferfish/build/, pufferfish/build/Release/
@@ -243,13 +252,28 @@ int main(int argc, char **argv)
         "nnue_weights.bin"};
     bool loaded = false;
     const char *loadedPath = nullptr;
-    for (const char *p : weightPaths)
+    bool usingSimple = false;
+    for (const char *p : simplePaths)
     {
-        if (nn.load(p))
+        if (snn.load(p))
         {
             loaded = true;
             loadedPath = p;
+            usingSimple = true;
             break;
+        }
+    }
+    if (!loaded)
+    {
+        for (const char *p : legacyPaths)
+        {
+            if (nn.load(p))
+            {
+                loaded = true;
+                loadedPath = p;
+                usingSimple = false;
+                break;
+            }
         }
     }
     if (!loaded)
@@ -259,12 +283,13 @@ int main(int argc, char **argv)
     }
     else
     {
-        std::cerr << "info nnue_loaded " << loadedPath << std::endl;
+        std::cerr << "info nnue_loaded " << loadedPath << (usingSimple ? " simple" : " legacy") << std::endl;
     }
 
     SearchContext ctx;
     ctx.tt = &tt;
-    ctx.nn = static_cast<NNEvaluator *>(&nn);
+    ctx.nn = usingSimple ? static_cast<NNEvaluator *>(&snn)
+                         : static_cast<NNEvaluator *>(&nn);
     if (movetime > 0)
     {
         ctx.limits.time_ms = static_cast<std::uint64_t>(movetime);
