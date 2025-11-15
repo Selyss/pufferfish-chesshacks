@@ -25,7 +25,7 @@ namespace pf
         float eps = 1e-5f;
         std::vector<float> gamma; // scale
         std::vector<float> beta;  // bias
-        bool load(std::FILE *f, int dim_, float eps_);
+        bool load(std::FILE *f, int dim_);
         void apply(std::vector<float> &x) const;
     };
 

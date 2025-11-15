@@ -41,10 +41,10 @@ namespace pf
         }
     }
 
-    bool LayerNormF::load(std::FILE *f, int dim_, float eps_)
+    bool LayerNormF::load(std::FILE *f, int dim_)
     {
         dim = dim_;
-        eps = eps_;
+        eps = 1e-5f;
         gamma.resize(dim);
         beta.resize(dim);
         if (!fread_exact(f, gamma.data(), dim * sizeof(float)))
@@ -96,21 +96,27 @@ namespace pf
 
         std::FILE *f = std::fopen(path, "rb");
         if (!f)
+        {
+            std::fprintf(stderr, "DEBUG: Failed to open file: %s\n", path);
             return false;
+        }
 
         // JSON metadata header [u32 length][json utf8]
         uint32_t json_len = 0;
         if (!read_u32(f, json_len) || json_len == 0 || json_len > (32u << 20))
         {
+            std::fprintf(stderr, "DEBUG: Invalid JSON length: %u\n", json_len);
             std::fclose(f);
             return false;
         }
         std::string json(json_len, '\0');
         if (!fread_exact(f, json.data(), json_len))
         {
+            std::fprintf(stderr, "DEBUG: Failed to read JSON\n");
             std::fclose(f);
             return false;
         }
+        std::fprintf(stderr, "DEBUG: JSON: %s\n", json.c_str());
         auto find_val = [&](const char *key) -> std::string
         {
             size_t kpos = json.find(key);
@@ -130,6 +136,7 @@ namespace pf
         std::string fmt = find_val("format");
         if (fmt != "residual-nnue-v1")
         {
+            std::fprintf(stderr, "DEBUG: Invalid format: '%s'\n", fmt.c_str());
             std::fclose(f);
             return false;
         }
@@ -137,106 +144,169 @@ namespace pf
         std::string lc_s = find_val("layer_count");
         if (in_s.empty() || lc_s.empty())
         {
+            std::fprintf(stderr, "DEBUG: Missing input_dim or layer_count\n");
             std::fclose(f);
             return false;
         }
         input_dim_ = std::stoi(in_s);
         int layer_count = std::stoi(lc_s);
+        std::fprintf(stderr, "DEBUG: input_dim=%d, layer_count=%d\n", input_dim_, layer_count);
+        if (layer_count <= 0)
+        {
+            std::fclose(f);
+            return false;
+        }
 
+        // Read layer records (NO COUNT - export_residual_nnue.py doesn't write one!)
         for (int li = 0; li < layer_count; ++li)
         {
             int32_t type_id = 0;
             if (!read_i32(f, type_id))
             {
+                std::fprintf(stderr, "DEBUG: Failed to read type_id at layer %d\n", li);
                 std::fclose(f);
                 return false;
             }
-            if (type_id == 1)
+            std::fprintf(stderr, "DEBUG: Layer %d: type_id=%d\n", li, type_id);
+            
+            if (type_id == 1) // LINEAR
             {
-                int32_t inD = 0, outD = 0;
-                if (!read_i32(f, inD) || !read_i32(f, outD))
+                int32_t in_i = 0, out_i = 0;
+                if (!read_i32(f, in_i) || !read_i32(f, out_i))
                 {
+                    std::fprintf(stderr, "DEBUG: Failed to read LINEAR dimensions\n");
+                    std::fclose(f);
+                    return false;
+                }
+                int inD = in_i;
+                int outD = out_i;
+                std::fprintf(stderr, "DEBUG: LINEAR: in=%d, out=%d\n", inD, outD);
+                if (inD <= 0 || outD <= 0)
+                {
+                    std::fprintf(stderr, "DEBUG: Invalid LINEAR dimensions\n");
                     std::fclose(f);
                     return false;
                 }
                 LinearF L;
                 if (!L.load(f, inD, outD))
                 {
+                    std::fprintf(stderr, "DEBUG: Failed to load LINEAR weights\n");
                     std::fclose(f);
                     return false;
                 }
                 int idx = (int)linears_.size();
                 linears_.push_back(std::move(L));
                 sequence_.push_back({1, idx});
+                std::fprintf(stderr, "DEBUG: LINEAR loaded successfully\n");
             }
-            else if (type_id == 2)
+            else if (type_id == 2) // LAYERNORM
             {
-                int32_t dim = 0;
+                int32_t dim_i = 0;
                 float eps = 1e-5f;
-                if (!read_i32(f, dim) || !read_f32(f, eps))
+                if (!read_i32(f, dim_i) || !read_f32(f, eps))
                 {
+                    std::fprintf(stderr, "DEBUG: Failed to read LAYERNORM dim/eps\n");
+                    std::fclose(f);
+                    return false;
+                }
+                int dim = dim_i;
+                std::fprintf(stderr, "DEBUG: LAYERNORM: dim=%d, eps=%f\n", dim, eps);
+                if (dim <= 0)
+                {
+                    std::fprintf(stderr, "DEBUG: Invalid LAYERNORM dimension\n");
                     std::fclose(f);
                     return false;
                 }
                 LayerNormF LN;
-                if (!LN.load(f, dim, eps))
+                if (!LN.load(f, dim))
                 {
+                    std::fprintf(stderr, "DEBUG: Failed to load LAYERNORM weights\n");
                     std::fclose(f);
                     return false;
                 }
+                LN.eps = eps;
                 int idx = (int)norms_.size();
                 norms_.push_back(std::move(LN));
                 sequence_.push_back({2, idx});
+                std::fprintf(stderr, "DEBUG: LAYERNORM loaded successfully\n");
             }
-            else if (type_id == 3)
+            else if (type_id == 3) // RESIDUAL
             {
-                int32_t dim = 0;
-                if (!read_i32(f, dim))
+                int32_t dim_i = 0;
+                if (!read_i32(f, dim_i))
                 {
+                    std::fprintf(stderr, "DEBUG: Failed to read RESIDUAL dimension\n");
                     std::fclose(f);
                     return false;
                 }
+                int dim = dim_i;
+                std::fprintf(stderr, "DEBUG: RESIDUAL: dim=%d\n", dim);
+                if (dim <= 0)
+                {
+                    std::fprintf(stderr, "DEBUG: Invalid RESIDUAL dimension\n");
+                    std::fclose(f);
+                    return false;
+                }
+                
                 ResidualBlockF RB;
-                int32_t in1 = 0, out1 = 0;
-                if (!read_i32(f, in1) || !read_i32(f, out1))
+                // Read l1 params: <i32 in_dim, i32 out_dim, weight, bias>
+                int32_t l1_in = 0, l1_out = 0;
+                if (!read_i32(f, l1_in) || !read_i32(f, l1_out))
                 {
+                    std::fprintf(stderr, "DEBUG: Failed to read RESIDUAL l1 dimensions\n");
                     std::fclose(f);
                     return false;
                 }
-                if (!RB.l1.load(f, in1, out1))
+                std::fprintf(stderr, "DEBUG: RESIDUAL l1: in=%d, out=%d\n", l1_in, l1_out);
+                if (!RB.l1.load(f, l1_in, l1_out))
                 {
+                    std::fprintf(stderr, "DEBUG: Failed to load RESIDUAL l1 weights\n");
                     std::fclose(f);
                     return false;
                 }
-                int32_t in2 = 0, out2 = 0;
-                if (!read_i32(f, in2) || !read_i32(f, out2))
+                
+                // Read l2 params: <i32 in_dim, i32 out_dim, weight, bias>
+                int32_t l2_in = 0, l2_out = 0;
+                if (!read_i32(f, l2_in) || !read_i32(f, l2_out))
                 {
+                    std::fprintf(stderr, "DEBUG: Failed to read RESIDUAL l2 dimensions\n");
                     std::fclose(f);
                     return false;
                 }
-                if (!RB.l2.load(f, in2, out2))
+                std::fprintf(stderr, "DEBUG: RESIDUAL l2: in=%d, out=%d\n", l2_in, l2_out);
+                if (!RB.l2.load(f, l2_in, l2_out))
                 {
+                    std::fprintf(stderr, "DEBUG: Failed to load RESIDUAL l2 weights\n");
                     std::fclose(f);
                     return false;
                 }
-                int32_t lnd = 0;
+                
+                // Read layernorm params: <i32 ln_dim, f32 ln_eps, weight, bias>
+                int32_t ln_dim_i = 0;
                 float ln_eps = 1e-5f;
-                if (!read_i32(f, lnd) || !read_f32(f, ln_eps))
+                if (!read_i32(f, ln_dim_i) || !read_f32(f, ln_eps))
                 {
+                    std::fprintf(stderr, "DEBUG: Failed to read RESIDUAL ln dim/eps\n");
                     std::fclose(f);
                     return false;
                 }
-                if (!RB.ln.load(f, lnd, ln_eps))
+                std::fprintf(stderr, "DEBUG: RESIDUAL ln: dim=%d, eps=%f\n", ln_dim_i, ln_eps);
+                if (!RB.ln.load(f, ln_dim_i))
                 {
+                    std::fprintf(stderr, "DEBUG: Failed to load RESIDUAL layernorm\n");
                     std::fclose(f);
                     return false;
                 }
+                RB.ln.eps = ln_eps;
+                
                 int idx = (int)residuals_.size();
                 residuals_.push_back(std::move(RB));
                 sequence_.push_back({3, idx});
+                std::fprintf(stderr, "DEBUG: RESIDUAL loaded successfully\n");
             }
             else
             {
+                std::fprintf(stderr, "DEBUG: Unknown type_id: %d\n", type_id);
                 std::fclose(f);
                 return false;
             }
@@ -244,6 +314,8 @@ namespace pf
 
         std::fclose(f);
         loaded_ = true;
+        std::fprintf(stderr, "DEBUG: Successfully loaded NNUE with %zu linears, %zu norms, %zu residuals\n",
+                     linears_.size(), norms_.size(), residuals_.size());
         return true;
     }
 
@@ -261,38 +333,52 @@ namespace pf
         {
             return 0;
         }
-        std::vector<float> h, tmp;
+        std::vector<float> tmp;
 
         for (size_t i = 0; i < sequence_.size(); ++i)
         {
             const auto &se = sequence_[i];
-            if (se.type == 1)
+            if (se.type == 1) // LINEAR
             {
                 const LinearF &L = linears_[se.index];
-                L.forward(x, h);
+                L.forward(x, tmp);
+                x.swap(tmp);
+                // ReLU is applied implicitly (next layer is LayerNorm or ReLU is skipped for output)
+                // Check if this is NOT the output head by seeing if next is LayerNorm
                 if (i + 1 < sequence_.size() && sequence_[i + 1].type == 2)
-                    relu(h);
-                x.swap(h);
+                {
+                    relu(x);
+                }
             }
-            else if (se.type == 2)
+            else if (se.type == 2) // LAYERNORM
             {
                 const LayerNormF &LN = norms_[se.index];
                 LN.apply(x);
             }
-            else if (se.type == 3)
+            else if (se.type == 3) // RESIDUAL
             {
                 const ResidualBlockF &RB = residuals_[se.index];
-                RB.l1.forward(x, h);
-                relu(h);
-                RB.l2.forward(h, h);
-                if (h.size() != x.size())
-                    return 0;
-                for (size_t k = 0; k < h.size(); ++k)
-                    h[k] += x[k];
-                tmp = h;
-                RB.ln.apply(tmp);
+                std::vector<float> residual = x;  // Save input for skip connection
+                
+                // y = relu(lin1(x))
+                RB.l1.forward(x, tmp);
                 relu(tmp);
-                x.swap(tmp);
+                
+                // y = lin2(y)
+                std::vector<float> y;
+                RB.l2.forward(tmp, y);
+                
+                // out = residual + y
+                if (y.size() != residual.size())
+                    return 0;
+                for (size_t k = 0; k < y.size(); ++k)
+                    y[k] += residual[k];
+                
+                // out = relu(norm(out))
+                RB.ln.apply(y);
+                relu(y);
+                
+                x.swap(y);
             }
         }
 
