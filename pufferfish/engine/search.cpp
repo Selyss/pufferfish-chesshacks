@@ -107,7 +107,7 @@ namespace pf
 
     static int estimate_moves_to_go(const Position &pos)
     {
-        // Simple phase-based MTG: opening 28, middlegame 20, endgame 12
+        // Improved phase-based MTG estimation
         auto cnt = [&](Piece p)
         {
 #ifdef _MSC_VER
@@ -118,12 +118,26 @@ namespace pf
         };
         int nonPawnMaterial = (cnt(W_KNIGHT) + cnt(B_KNIGHT)) * 3 + (cnt(W_BISHOP) + cnt(B_BISHOP)) * 3 +
                               (cnt(W_ROOK) + cnt(B_ROOK)) * 5 + (cnt(W_QUEEN) + cnt(B_QUEEN)) * 9;
-        int mtg = 20;
-        if (nonPawnMaterial >= 40)
-            mtg = 28; // opening
-        else if (nonPawnMaterial <= 16)
-            mtg = 12; // endgame
-        return mtg;
+        
+        // Use ply count if available for better accuracy
+        int baseMtg = 20;
+        if (nonPawnMaterial >= 50)
+            baseMtg = 35; // opening: more moves expected
+        else if (nonPawnMaterial >= 30)
+            baseMtg = 25; // middlegame
+        else if (nonPawnMaterial >= 16)
+            baseMtg = 18; // late middlegame
+        else if (nonPawnMaterial >= 8)
+            baseMtg = 15; // endgame
+        else
+            baseMtg = 10; // late endgame
+        
+        // Adjust based on half-move clock (rough estimate from position)
+        int totalPieces = cnt(W_PAWN) + cnt(B_PAWN) + nonPawnMaterial / 3;
+        if (totalPieces > 28) // early game
+            baseMtg = std::max(baseMtg, 30);
+        
+        return baseMtg;
     }
 
     SearchResult search(Position &pos, SearchContext &ctx)
@@ -137,19 +151,34 @@ namespace pf
         }
         else if (ctx.limits.time_left_ms)
         {
+            // Match Python bot time allocation strategy:
+            // - Use 2% of remaining time (time_fraction = 0.02)
+            // - Clamp between 100ms and 4000ms
+            // - Apply 85% buffer for safety (like Python bot)
             std::uint64_t T = ctx.limits.time_left_ms;
-            int mtg = estimate_moves_to_go(pos);
-            // Keep a reserve: 12% of remaining time, capped at 4000 ms
-            std::uint64_t reserve = std::min<std::uint64_t>(T / 8, 4000);
-            std::uint64_t usable = (T > reserve) ? (T - reserve) : (T * 7 / 8);
-            // Base allocation: usable / (mtg + 1) for safety
-            std::uint64_t base = usable / (std::uint64_t)(mtg + 1);
-            // Clamp between [10 ms, 18% of T]
-            std::uint64_t hardMax = (T * 18) / 100;
-            std::uint64_t alloc = std::max<std::uint64_t>(10, std::min<std::uint64_t>(base, hardMax));
+            
+            // Default time when no time left
+            const std::uint64_t DEFAULT_TIME_MS = 1000;
+            const std::uint64_t MIN_TIME_MS = 100;
+            const std::uint64_t MAX_TIME_MS = 4000;
+            const double TIME_FRACTION = 0.02; // 2% of remaining time
+            const double SAFETY_BUFFER = 0.85; // Use 85% of allocated time
+            
+            std::uint64_t alloc;
+            if (T <= 0) {
+                alloc = DEFAULT_TIME_MS;
+            } else {
+                // Python: allocated = int(remaining_ms * time_fraction)
+                std::uint64_t base = static_cast<std::uint64_t>(T * TIME_FRACTION);
+                // Python: max(min_time_ms, min(max_time_ms, allocated))
+                alloc = std::max(MIN_TIME_MS, std::min(MAX_TIME_MS, base));
+            }
+            
+            // Apply 85% safety buffer (Python bot does this)
+            alloc = static_cast<std::uint64_t>(alloc * SAFETY_BUFFER);
+            
             ctx.tm.alloc_ms = alloc;
-            std::cerr << "info tm time_left_ms " << T << " mtg " << mtg
-                      << " reserve_ms " << reserve << " alloc_ms " << alloc << std::endl;
+            std::cerr << "info tm time_left_ms " << T << " alloc_ms " << alloc << std::endl;
         }
 
         SearchResult result;
@@ -158,7 +187,8 @@ namespace pf
         int beta = INF_SCORE;
         Move bestSoFar = MOVE_NONE;
 
-        int maxDepth = ctx.limits.depth ? ctx.limits.depth : 64;
+        // Match Python bot: max_depth = 8
+        int maxDepth = ctx.limits.depth ? ctx.limits.depth : 8;
 
         for (int depth = 1; depth <= maxDepth; ++depth)
         {
@@ -207,6 +237,20 @@ namespace pf
             result.score = score;
             result.depth = depth;
             rootPV = pv;
+        }
+
+        // Safety: if no move found (timeout before depth 1), pick first legal move
+        if (result.bestMove == MOVE_NONE)
+        {
+            MoveList legal;
+            generate_moves(pos, legal);
+            filter_legal_moves(pos, legal);
+            if (legal.count > 0)
+            {
+                result.bestMove = legal.moves[0];
+                result.score = 0;
+                result.depth = 0;
+            }
         }
 
         (void)rootPV; // could be logged/used for UI

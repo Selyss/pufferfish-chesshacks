@@ -16,7 +16,7 @@
 using namespace pf;
 
 // Set to true to enable NNUE loading logs, false to disable
-const bool DEBUG_LOGGING = false;
+const bool DEBUG_LOGGING = true;
 
 // Material fallback removed: NNUE is required.
 
@@ -203,10 +203,10 @@ int main(int argc, char **argv)
     Position pos;
     pos.set_startpos();
 
-    // Parse CLI args: --fen <6 tokens>, --depth N, --movetime ms, --timeleft ms
+        // Parse CLI args: --fen <6 tokens>, --depth N, --movetime ms, --timeleft ms
     std::string fen;
-    int depth = 5;
-    int movetime = 0;
+    int depth = 0; // 0 = use time control (Python bot: iterative deepening up to 8)
+    int movetime = 0; // Use time_left allocation instead
     long long timeleft = 0;
     for (int i = 1; i < argc; ++i)
     {
@@ -243,12 +243,7 @@ int main(int argc, char **argv)
     // Load SimpleNNUE residual model (residual-nnue-v1 JSON+records)
     SimpleNNUEEvaluator snn;
     const char *simplePaths[] = {
-        "bot/python/nnue_residual.bin",
-        "../bot/python/nnue_residual.bin",
         "../../bot/python/nnue_residual.bin",
-        "../../../bot/python/nnue_residual.bin",
-        "nnue_residual.bin",
-        "../nnue_residual.bin",
     };
 
     if (DEBUG_LOGGING)

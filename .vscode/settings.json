@@ -1,7 +1,8 @@
 {
     "files.associations": {
         "xstring": "cpp",
-        "iosfwd": "cpp"
+        "iosfwd": "cpp",
+        "sstream": "cpp"
     },
     "cmake.sourceDirectory": "/workspaces/pufferfish/pufferfish"
 }
