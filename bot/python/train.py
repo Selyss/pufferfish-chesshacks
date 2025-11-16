@@ -157,7 +157,7 @@ def train_nnue(
     
     # Load and split dataset
     print("Loading dataset from Hugging Face...")
-    full_dataset = load_dataset("LegendaryAKx3/preprocessed-balanced", split="train")
+    full_dataset = load_dataset("LegendaryAKx3/heavy-preprocessed", split="train")
     train_data, val_data = create_stratified_split(
         full_dataset, 
         val_ratio=val_ratio, 

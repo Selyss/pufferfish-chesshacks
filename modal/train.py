@@ -39,6 +39,9 @@ def train_on_a100(
     lr: float = 3e-4,
     seed: int = 42,
     extra_args: str | None = None,
+    log_interval: int = 100,
+    log_interval_eval: bool = True,
+    model: str = "simple",
 ) -> None:
     CHECKPOINT_VOLUME.reload()
     output_dir = Path("/outputs") / run_name
@@ -52,10 +55,14 @@ def train_on_a100(
         f"--lr={lr}",
         f"--seed={seed}",
         f"--output-dir={output_dir}",
-        "--amp",
-        "--num-workers=4",
+        #"--amp",
+        #"--num-workers=4",
         "--device=cuda",
+        f"--log-interval={log_interval}",
+        f"--model={model}",
     ]
+    if log_interval_eval:
+        cmd.append("--log-interval-eval")
     if limit_rows:
         cmd.extend(["--limit-rows", str(limit_rows)])
     if extra_args:
@@ -74,6 +81,9 @@ def main(
     lr: float = 3e-4,
     seed: int = 42,
     extra_args: str | None = None,
+    log_interval: int = 100,
+    log_interval_eval: bool = True,
+    model: str = "simple",
 ) -> None:
     resolved = run_name or f"modal-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
     train_on_a100.remote(
@@ -84,4 +94,7 @@ def main(
         lr=lr,
         seed=seed,
         extra_args=extra_args,
+        log_interval=log_interval,
+        log_interval_eval=log_interval_eval,
+        model=model,
     )

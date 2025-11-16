@@ -20,6 +20,7 @@ from .dataset import (
     load_light_preprocessed_dataset,
 )
 from .model import SimpleNNUE
+from .model_compact import CompactNNUE
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,6 +48,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-by-knodes", action="store_true")
     parser.add_argument("--checkpoint-every", type=int, default=1, help="Save checkpoints every N epochs.")
     parser.add_argument("--amp", action="store_true", help="Enable mixed precision on CUDA devices.")
+    parser.add_argument(
+        "--model",
+        type=str,
+        choices=["simple", "compact"],
+        default="simple",
+        help="Choose between the original SimpleNNUE or the CompactNNUE.",
+    )
+    parser.add_argument(
+        "--log-interval",
+        type=int,
+        default=0,
+        help="Log running train/val losses every N steps (0 disables).",
+    )
+    parser.add_argument(
+        "--log-interval-eval",
+        action="store_true",
+        help="Also run validation when --log-interval triggers.",
+    )
     return parser.parse_args()
 
 
@@ -76,6 +95,9 @@ def train_epoch(
     scaler: torch.cuda.amp.GradScaler,
     use_amp: bool,
     grad_clip: float,
+    epoch: int,
+    log_interval: int = 0,
+    val_loader: DataLoader | None = None,
 ) -> float:
     model.train()
     total_loss = 0.0
@@ -87,7 +109,7 @@ def train_epoch(
         def autocast():
             return nullcontext()
 
-    for features, labels, weights in tqdm(loader, desc="train", leave=False):
+    for step, (features, labels, weights) in enumerate(tqdm(loader, desc="train", leave=False), start=1):
         features = features.to(device, non_blocking=True)
         labels = labels.squeeze(-1).to(device, non_blocking=True)
         weights = weights.squeeze(-1).to(device, non_blocking=True)
@@ -113,6 +135,14 @@ def train_epoch(
         batch_size = features.shape[0]
         total_loss += loss.item() * batch_size
         total_samples += batch_size
+        if log_interval > 0 and step % log_interval == 0:
+            avg_loss = total_loss / max(total_samples, 1)
+            message = f"[epoch {epoch:02d} step {step:05d}] train_loss={avg_loss:.4f}"
+            if val_loader is not None:
+                val_loss = evaluate(model, val_loader, device)
+                message += f" | val_loss={val_loss:.4f}"
+                model.train()
+            tqdm.write(message) 
 
     return total_loss / max(total_samples, 1)
 
@@ -167,10 +197,6 @@ def main() -> None:
     device = resolve_device(args.device)
     print(f"Using device: {device}")
 
-    hidden_dims = tuple(args.hidden_dims) if args.hidden_dims else (2048, 2048, 1024, 512, 256)
-    residual_repeats = (
-        tuple(args.residual_repeats) if args.residual_repeats else tuple(2 for _ in hidden_dims)
-    )
     dataset_config = DatasetConfig(
         label_key=args.label_key,
         target_scale=args.target_scale,
@@ -204,28 +230,50 @@ def main() -> None:
         train_set,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=args.num_workers,
+        num_workers=14,
+        prefetch_factor=1,
         pin_memory=pin_memory,
     )
     val_loader = DataLoader(
         val_set,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=args.num_workers,
+        num_workers=2,
+        prefetch_factor=1,
         pin_memory=pin_memory,
     )
 
-    model = SimpleNNUE(
-        input_dim=dataset.feature_dim,
-        hidden_dims=hidden_dims,
-        dropout=args.dropout,
-        residual_repeats=residual_repeats,
-    ).to(device)
+    if args.model == "simple":
+        hidden_dims = tuple(args.hidden_dims) if args.hidden_dims else (2048, 2048, 1024, 512, 256)
+        residual_repeats = (
+            tuple(args.residual_repeats) if args.residual_repeats else tuple(2 for _ in hidden_dims)
+        )
+        model = SimpleNNUE(
+            input_dim=dataset.feature_dim,
+            hidden_dims=hidden_dims,
+            dropout=args.dropout,
+            residual_repeats=residual_repeats,
+        ).to(device)
+        model_hidden_dims = hidden_dims
+        model_residual_repeats = residual_repeats
+        model_dropout = args.dropout
+    else:
+        hidden_dims = tuple(args.hidden_dims) if args.hidden_dims else None
+        residual_repeats = tuple(args.residual_repeats) if args.residual_repeats else None
+        model = CompactNNUE(
+            input_dim=dataset.feature_dim,
+            hidden_dims=hidden_dims,
+            residual_repeats=residual_repeats,
+        ).to(device)
+        model_hidden_dims = tuple(model.hidden_dims)
+        model_residual_repeats = tuple(model.residual_repeats)
+        model_dropout = 0.0
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=2)
 
     use_amp = bool(args.amp and device.type == "cuda")
-    try:
+    try: 
         scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     except AttributeError:
         scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
@@ -233,10 +281,11 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     config_path = args.output_dir / "training_config.json"
     model_config = {
+        "model_type": args.model,
         "input_dim": dataset.feature_dim,
-        "hidden_dims": list(hidden_dims),
-        "dropout": args.dropout,
-        "residual_repeats": list(residual_repeats),
+        "hidden_dims": list(model_hidden_dims) if model_hidden_dims is not None else None,
+        "dropout": model_dropout,
+        "residual_repeats": list(model_residual_repeats) if model_residual_repeats is not None else None,
     }
     config_payload = {
         "args": {
@@ -260,6 +309,9 @@ def main() -> None:
             scaler,
             use_amp,
             args.grad_clip,
+            epoch,
+            args.log_interval,
+            val_loader if args.log_interval and args.log_interval_eval else None,
         )
         val_loss = evaluate(model, val_loader, device)
         scheduler.step(val_loss)

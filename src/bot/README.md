@@ -91,10 +91,14 @@ pip install modal
 modal token new
 
 modal run modal/train.py \
-  --run-name modal-a100 \
+  --run-name modal-compact-a100 \
   --epochs 6 \
   --batch-size 8192 \
   --limit-rows 30000000 \
+  --amp \
+  --model compact \
+  --log-interval 100 \
+  --log-interval-eval \
   --extra-args "--skip-depth-feature --skip-knodes-feature"
 ```
 

@@ -148,7 +148,7 @@ def load_light_preprocessed_dataset(
 ) -> IterableDataset | HFDataset:
     """Load the LegendaryAKx3/rebalanced-preprocessed dataset."""
     return load_dataset(
-        path="LegendaryAKx3/rebalanced-preprocessed",
+        path="LegendaryAKx3/heavy-preprocessed",
         split=split,
         cache_dir=cache_dir,
         streaming=streaming,

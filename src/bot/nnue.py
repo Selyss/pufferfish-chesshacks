@@ -11,6 +11,7 @@ import torch
 
 from .dataset import FenFeatureEncoder, _PIECE_TYPES
 from .model import SimpleNNUE
+from .model_compact import CompactNNUE
 
 PIECE_VALUES = {
     chess.PAWN: 100,
@@ -286,15 +287,23 @@ class NNUEEvaluator:
             )
         encoder = FenFeatureEncoder()
         input_dim = model_config.get("input_dim", encoder.feature_dim)
+        model_type = model_config.get("model_type", "simple")
         hidden_dims = model_config.get("hidden_dims")
-        dropout = model_config.get("dropout", 0.0)
         residual_repeats = model_config.get("residual_repeats")
-        model = SimpleNNUE(
-            input_dim=input_dim,
-            hidden_dims=hidden_dims,
-            dropout=dropout,
-            residual_repeats=residual_repeats,
-        )
+        if model_type == "compact":
+            model = CompactNNUE(
+                input_dim=input_dim,
+                hidden_dims=hidden_dims,
+                residual_repeats=residual_repeats,
+            )
+        else:
+            dropout = model_config.get("dropout", 0.0)
+            model = SimpleNNUE(
+                input_dim=input_dim,
+                hidden_dims=hidden_dims,
+                dropout=dropout,
+                residual_repeats=residual_repeats,
+            )
         model.load_state_dict(checkpoint["model_state"])
         evaluator = cls(model=model, input_dim=input_dim, encoder=encoder, device=device)
         return evaluator
