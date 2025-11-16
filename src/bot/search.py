@@ -118,6 +118,24 @@ class AlphaBetaSearch:
         best_probabilities: Dict[chess.Move, float] = {}
         last_completed_depth = 0
 
+        # Check for immediate mate-in-one before expensive search
+        legal_moves = list(state.board.legal_moves)
+        for move in legal_moves:
+            state.board.push(move)
+            if state.board.is_checkmate():
+                state.board.pop()
+                # Found mate in 1, return immediately
+                if DEBUG_LOGGING:
+                    logger.info(f"Found mate in 1: {move.uci()}")
+                return SearchResult(
+                    move=move,
+                    score=self.mate_score,
+                    depth=1,
+                    nodes=len(legal_moves),
+                    probabilities={move: 1.0},
+                )
+            state.board.pop()
+
         for depth in range(1, self.max_depth + 1):
             try:
                 score, move, root_scores = self._search_root(state, depth, deadline)
