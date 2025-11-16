@@ -12,3 +12,4 @@ bot\python\nnue_residual_rebalanced_preprocessed.bin
 bot\python\simple_nnue.bin
 
 *.npz
+mini/training/*
