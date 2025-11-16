@@ -214,7 +214,7 @@ def main() -> None:
         print(f"Subsampled dataset to {limit} rows.")
     dataset = LightPreprocessedDataset(base_dataset, encoder=FenFeatureEncoder(), config=dataset_config)
 
-    val_size = max(1, int(len(dataset) * args.val_split))
+    val_size = max(1, min(600000, int(len(dataset) * args.val_split)))
     train_size = len(dataset) - val_size
     if train_size <= 0:
         raise ValueError("Not enough samples for the requested validation split.")
@@ -230,8 +230,8 @@ def main() -> None:
         train_set,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=14,
-        prefetch_factor=1,
+        num_workers=58,
+        prefetch_factor=4,
         pin_memory=pin_memory,
     )
     val_loader = DataLoader(
@@ -239,7 +239,7 @@ def main() -> None:
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=2,
-        prefetch_factor=1,
+        prefetch_factor=2,
         pin_memory=pin_memory,
     )
 

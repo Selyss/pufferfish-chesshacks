@@ -28,13 +28,14 @@ image = (
 @app.function(
     image=image.add_local_dir(".", remote_path="/root/app"),
     gpu="A100-40GB",
+    cpu=64.0,
     timeout=60 * 60 * 24,
     volumes={"/outputs": CHECKPOINT_VOLUME},
 )
 def train_on_a100(
     run_name: str = "modal-run",
     batch_size: int = 8192,
-    epochs: int = 6,
+    epochs: int = 100,
     limit_rows: int | None = None,
     lr: float = 3e-4,
     seed: int = 42,
@@ -81,8 +82,8 @@ def main(
     lr: float = 3e-4,
     seed: int = 42,
     extra_args: str | None = None,
-    log_interval: int = 100,
-    log_interval_eval: bool = True,
+    log_interval: int = 0,
+    log_interval_eval: bool = False,
     model: str = "simple",
 ) -> None:
     resolved = run_name or f"modal-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"

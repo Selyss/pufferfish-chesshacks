@@ -8,6 +8,7 @@ cached_features_v1.npz
 checkpoints/
 checkpoints-old/
 modal-compact-a100/
+lesslog16w-modal-compact-a100/
 bot\python\nnue_residual.bin
 bot\python\nnue_residual_rebalanced_preprocessed.bin
 .DS_Store
