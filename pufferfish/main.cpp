@@ -15,6 +15,9 @@
 
 using namespace pf;
 
+// Set to true to enable NNUE loading logs, false to disable
+const bool DEBUG_LOGGING = false;
+
 // Material fallback removed: NNUE is required.
 
 static std::string sq_to_str(int sq)
@@ -247,28 +250,37 @@ int main(int argc, char **argv)
         "nnue_residual.bin",
         "../nnue_residual.bin",
     };
-    
-    std::cout << "[INFO] Searching for NNUE binary file..." << std::endl;
-    std::cout.flush();
+
+    if (DEBUG_LOGGING)
+    {
+        std::cout << "[INFO] Searching for NNUE binary file..." << std::endl;
+        std::cout.flush();
+    }
     bool loaded = false;
     const char *loadedPath = nullptr;
     for (const char *p : simplePaths)
     {
-        std::cout << "[INFO] Trying: " << p;
-        std::cout.flush();
-        
-        // Check if file exists
-        std::FILE *test = std::fopen(p, "rb");
-        if (test) {
-            std::fclose(test);
-            std::cout << " (file exists)";
+        if (DEBUG_LOGGING)
+        {
+            std::cout << "[INFO] Trying: " << p;
             std::cout.flush();
-        } else {
-            std::cout << " (not found)";
-            std::cout.flush();
+
+            // Check if file exists
+            std::FILE *test = std::fopen(p, "rb");
+            if (test)
+            {
+                std::fclose(test);
+                std::cout << " (file exists)";
+                std::cout.flush();
+            }
+            else
+            {
+                std::cout << " (not found)";
+                std::cout.flush();
+            }
+            std::cout << std::endl;
         }
-        std::cout << std::endl;
-        
+
         if (snn.load(p))
         {
             loaded = true;
@@ -286,8 +298,11 @@ int main(int argc, char **argv)
     }
     else
     {
-        std::cout << "[SUCCESS] Loaded NNUE from: " << loadedPath << std::endl;
-        std::cerr << "info nnue_loaded " << loadedPath << " simple" << std::endl;
+        if (DEBUG_LOGGING)
+        {
+            std::cout << "[SUCCESS] Loaded NNUE from: " << loadedPath << std::endl;
+            std::cerr << "info nnue_loaded " << loadedPath << " simple" << std::endl;
+        }
     }
 
     SearchContext ctx;
