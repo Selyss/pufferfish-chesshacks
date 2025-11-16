@@ -108,10 +108,13 @@ class AlphaBetaSearch:
             # Use 85% of time to ensure we complete depth 1 even with many legal moves
             effective_time = time_limit_ms * 0.85
             deadline = search_start + effective_time / 1000
+            # Hard timeout at 50 seconds to prevent tournament timeout (60s limit)
+            hard_deadline = search_start + 50.0
             if DEBUG_LOGGING:
                 logger.debug(f"Search allocated {effective_time:.0f}ms of {time_limit_ms}ms budget")
         else:
             deadline = None
+            hard_deadline = None
             
         best_move: Optional[chess.Move] = None
         best_score = -self.mate_score
@@ -138,7 +141,7 @@ class AlphaBetaSearch:
 
         for depth in range(1, self.max_depth + 1):
             try:
-                score, move, root_scores = self._search_root(state, depth, deadline)
+                score, move, root_scores = self._search_root(state, depth, deadline, hard_deadline)
             except SearchTimeout:
                 if DEBUG_LOGGING:
                     elapsed = (time.perf_counter() - search_start) * 1000
@@ -196,6 +199,7 @@ class AlphaBetaSearch:
         state: NNUEState,
         depth: int,
         deadline: Optional[float],
+        hard_deadline: Optional[float] = None,
     ) -> Tuple[float, Optional[chess.Move], List[Tuple[chess.Move, float]]]:
         alpha = -self.mate_score
         beta = self.mate_score
@@ -210,11 +214,16 @@ class AlphaBetaSearch:
 
         for move in moves:
             if move in state.board.legal_moves:
+                # Check hard deadline first (cannot be bypassed)
+                if hard_deadline and time.perf_counter() > hard_deadline:
+                    if DEBUG_LOGGING:
+                        logger.warning("Hard deadline reached, returning best move found")
+                    raise SearchTimeout()
                 # Check time only after first move completes at depth 1
                 if self.first_move_completed and best_move is not None:
                     self._check_time(deadline)
                 state.push(move)
-                score = -self._negamax(state, depth - 1, -beta, -alpha, 1, deadline)
+                score = -self._negamax(state, depth - 1, -beta, -alpha, 1, deadline, hard_deadline)
                 state.pop()
                 root_scores.append((move, score))
                 if score > best_score:
@@ -233,7 +242,11 @@ class AlphaBetaSearch:
         beta: float,
         ply: int,
         deadline: Optional[float],
+        hard_deadline: Optional[float] = None,
     ) -> float:
+        # Check hard deadline first (cannot be bypassed)
+        if hard_deadline and time.perf_counter() > hard_deadline:
+            raise SearchTimeout()
         # Only check time after completing first move at depth 1
         if self.first_move_completed:
             self._check_time(deadline)
@@ -257,7 +270,7 @@ class AlphaBetaSearch:
         if self.check_extension and depth > 0 and board.is_check():
             depth += 1
         if depth == 0 or board.is_game_over():
-            return self._quiescence(state, alpha, beta, ply, deadline, self.quiescence_depth)
+            return self._quiescence(state, alpha, beta, ply, deadline, hard_deadline, self.quiescence_depth)
 
         best_value = -self.mate_score
         moves = self._order_moves(state, ply, tt_move)
@@ -267,7 +280,7 @@ class AlphaBetaSearch:
         best_move_local: Optional[chess.Move] = None
         for move in moves:
             state.push(move)
-            value = -self._negamax(state, depth - 1, -beta, -alpha, ply + 1, deadline)
+            value = -self._negamax(state, depth - 1, -beta, -alpha, ply + 1, deadline, hard_deadline)
             state.pop()
             if value > best_value:
                 best_value = value
@@ -293,8 +306,12 @@ class AlphaBetaSearch:
         beta: float,
         ply: int,
         deadline: Optional[float],
+        hard_deadline: Optional[float],
         depth_left: int,
     ) -> float:
+        # Check hard deadline first (cannot be bypassed)
+        if hard_deadline and time.perf_counter() > hard_deadline:
+            raise SearchTimeout()
         # Only check time after completing first move at depth 1
         if self.first_move_completed:
             self._check_time(deadline)
@@ -311,7 +328,7 @@ class AlphaBetaSearch:
         captures = self._ordered_captures(state)
         for move in captures:
             state.push(move)
-            score = -self._quiescence(state, -beta, -alpha, ply + 1, deadline, depth_left - 1)
+            score = -self._quiescence(state, -beta, -alpha, ply + 1, deadline, hard_deadline, depth_left - 1)
             state.pop()
             if score >= beta:
                 return beta
@@ -323,7 +340,7 @@ class AlphaBetaSearch:
                 if board.is_capture(move) or not board.gives_check(move):
                     continue
                 state.push(move)
-                score = -self._quiescence(state, -beta, -alpha, ply + 1, deadline, depth_left - 1)
+                score = -self._quiescence(state, -beta, -alpha, ply + 1, deadline, hard_deadline, depth_left - 1)
                 state.pop()
                 if score >= beta:
                     return beta
