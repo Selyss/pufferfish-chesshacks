@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import time
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -9,6 +10,28 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import chess
 
 from .nnue import NNUEEvaluator, NNUEState, PIECE_VALUES
+
+# Set to True to enable detailed logging, False to disable
+DEBUG_LOGGING = False
+
+# Set up logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# Console handler
+if not logger.handlers:
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+    console_formatter = logging.Formatter('[%(levelname)s] %(message)s')
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+    
+    # File handler
+    file_handler = logging.FileHandler('bot_search.log', mode='a')
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
 
 
 class SearchTimeout(Exception):
@@ -59,9 +82,37 @@ class AlphaBetaSearch:
         self.quiescence_check_limit = quiescence_check_limit
 
     def search(self, state: NNUEState, time_limit_ms: int) -> SearchResult:
+        # Log board state before search
+        if DEBUG_LOGGING:
+            print("="*60)
+            print("BOARD STATE BEFORE SEARCH:")
+            print(f"FEN: {state.board.fen()}")
+            print(f"Side to move: {'White' if state.board.turn == chess.WHITE else 'Black'}")
+            print(f"Time limit: {time_limit_ms}ms")
+            legal_moves = list(state.board.legal_moves)
+            print(f"Legal moves ({len(legal_moves)}): {[m.uci() for m in legal_moves]}")
+            print("Board:")
+            for line in str(state.board).split('\n'):
+                print(line)
+            print(f"Max depth: {self.max_depth}, Quiescence depth: {self.quiescence_depth}")
+            print("="*60)
+        
         self.nodes = 0
         self.killer_moves = [[None, None] for _ in range(self.max_depth + 64)]
-        deadline = time.perf_counter() + max(time_limit_ms, 0) / 1000 if time_limit_ms else None
+        self.first_move_completed = False  # Flag to ensure depth 1 completes
+        
+        # Add buffer and convert to seconds, record start time for debugging
+        search_start = time.perf_counter()
+        if time_limit_ms and time_limit_ms > 0:
+            # Reserve time for: NNUE inference overhead, logging, network overhead
+            # Use 85% of time to ensure we complete depth 1 even with many legal moves
+            effective_time = time_limit_ms * 0.85
+            deadline = search_start + effective_time / 1000
+            if DEBUG_LOGGING:
+                logger.debug(f"Search allocated {effective_time:.0f}ms of {time_limit_ms}ms budget")
+        else:
+            deadline = None
+            
         best_move: Optional[chess.Move] = None
         best_score = -self.mate_score
         best_probabilities: Dict[chess.Move, float] = {}
@@ -71,28 +122,56 @@ class AlphaBetaSearch:
             try:
                 score, move, root_scores = self._search_root(state, depth, deadline)
             except SearchTimeout:
+                if DEBUG_LOGGING:
+                    elapsed = (time.perf_counter() - search_start) * 1000
+                    logger.warning(f"Search timed out at depth {depth} after {elapsed:.1f}ms (limit: {time_limit_ms}ms)")
                 break
             if move is not None:
                 best_move = move
                 best_score = score
                 best_probabilities = self._scores_to_probabilities(root_scores)
                 last_completed_depth = depth
+                # After completing depth 1, allow normal time checks
+                if depth == 1:
+                    self.first_move_completed = True
 
         if best_move is None:
             legal_moves = list(state.board.generate_legal_moves())
             if not legal_moves:
                 raise ValueError("No legal moves available.")
+            
+            if DEBUG_LOGGING:
+                elapsed = (time.perf_counter() - search_start) * 1000
+                logger.warning(f"No move found after search! Elapsed: {elapsed:.1f}ms, Nodes: {self.nodes}")
+                logger.warning(f"Falling back to first legal move: {legal_moves[0].uci()}")
+            
             best_move = legal_moves[0]
             best_score = 0.0
+            # print all legal moves
+            if DEBUG_LOGGING:
+                for move in legal_moves:
+                    print("Legal move:", move.uci(), end=" ")
+                print()
             best_probabilities = {best_move: 1.0}
 
-        return SearchResult(
+        result = SearchResult(
             move=best_move,
             score=best_score,
             depth=max(1, last_completed_depth),
             nodes=self.nodes,
             probabilities=best_probabilities,
         )
+        
+        # Log search result
+        if DEBUG_LOGGING:
+            logger.info(f"Selected move: {best_move.uci() if best_move else 'None'}")
+            logger.info(f"Score: {best_score:.2f}")
+            logger.info(f"Depth completed: {last_completed_depth}")
+            logger.info(f"Nodes searched: {self.nodes}")
+            logger.info(f"Top moves: {[(m.uci(), f'{p:.3f}') for m, p in sorted(best_probabilities.items(), key=lambda x: x[1], reverse=True)[:5]]}")
+            logger.info("="*60 + "\n")
+        
+        return result
 
     def _search_root(
         self,
@@ -113,7 +192,9 @@ class AlphaBetaSearch:
 
         for move in moves:
             if move in state.board.legal_moves:
-                self._check_time(deadline)
+                # Check time only after first move completes at depth 1
+                if self.first_move_completed and best_move is not None:
+                    self._check_time(deadline)
                 state.push(move)
                 score = -self._negamax(state, depth - 1, -beta, -alpha, 1, deadline)
                 state.pop()
@@ -135,7 +216,9 @@ class AlphaBetaSearch:
         ply: int,
         deadline: Optional[float],
     ) -> float:
-        self._check_time(deadline)
+        # Only check time after completing first move at depth 1
+        if self.first_move_completed:
+            self._check_time(deadline)
         self.nodes += 1
         board = state.board
         key = self._tt_key(board)
@@ -194,7 +277,9 @@ class AlphaBetaSearch:
         deadline: Optional[float],
         depth_left: int,
     ) -> float:
-        self._check_time(deadline)
+        # Only check time after completing first move at depth 1
+        if self.first_move_completed:
+            self._check_time(deadline)
         stand_pat = self.evaluator.evaluate(state)
         self.nodes += 1
         if depth_left <= 0:

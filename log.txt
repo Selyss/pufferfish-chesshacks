@@ -1,0 +1,139 @@
+ GET /api/reload/status 200 in 10ms (compile: 3ms, render: 7ms)
+ GET /api/reload/status 200 in 8ms (compile: 3ms, render: 5ms)
+ GET /api/reload/status 200 in 14ms (compile: 5ms, render: 9ms)
+/api/bot POST received
+Proxying request to serve.py /move
+[serve.py stdout] pgn 1. e4 e6 2. f4 Qh4+ 3. g3 Ne7 4. f5 Qxe4+ 5. Ne2 Qxh1 6. Nbc3 Nxf5 7. Nd4 Nxd4 8. d3 Qxh2 9. Be3 Nxc2+ 10. Qxc2 Qxc2 11. Rc1 Qxb2 12. Na4 Bb4+ 13. Kd1 Qxa2 14. Nc3 Qb2 15. Bd4 Nc6 16. Ne2 Nxd4 17. Nxd4 Qxd4 18. Rc4 Qb2 19. Rc2      
+[serve.py stderr] [INFO] ============================================================
+[serve.py stdout] INFO:src.bot.search:============================================================
+INFO:src.bot.search:BOARD STATE BEFORE SEARCH
+[serve.py stderr] [INFO] BOARD STATE BEFORE SEARCH:
+[INFO] FEN: r1b1k2r/pppp1ppp/4p3/8/1b6/3P2P1/1qR5/3K1B2 b kq - 3 19
+[INFO] Side to move: Black
+[serve.py stdout] INFO:src.bot.search:FEN: r1b1k2r/pppp1ppp/4p3/8/1b6/3P2P1/1qR5/3K1B2 b kq - 3 19
+INFO:src.bot.search:Side to move: Black
+INFO:src.bot.search:Time limit: 1200ms
+[serve.py stderr] [INFO] Time limit: 1200ms
+[serve.py stdout] INFO:src.bot.search:Legal moves (42): ['h8g8', 'h8f8', 'e8f8', 'e8d8', 'e8e7', 'a8b8', 'b4f8', 'b4e7', 'b4d6', 'b4c5', 'b4a5', 'b4c3', 'b4a3', 'b4d2', 'b4e1', 'b2f6', 'b2e5', 'b2d4', 'b2c3', 'b2b3', 'b2a3', 'b2c2', 'b2a2', 'b2c1', 'b2b1', 'b2a1', 'e8g8', 'h7h6', 'g7g6', 'f7f6', 'd7d6', 'c7c6', 'b7b6', 'a7a6', 'e6e5', 'h7h5', 'g7g5', 'f7f5', 'd7d5', 'c7c5', 'b7b5', 'a7a5']
+[serve.py stderr] [INFO] Legal moves (42): ['h8g8', 'h8f8', 'e8f8', 'e8d8', 'e8e7', 'a8b8', 'b4f8', 'b4e7', 'b4d6', 'b4c5', 'b4a5', 'b4c3', 'b4a3', 'b4d2', 'b4e1', 'b2f6', 'b2e5', 'b2d4', 'b2c3', 'b2b3', 'b2a3', 'b2c2', 'b2a2', 'b2c1', 'b2b1', 'b2a1', 'e8g8', 'h7h6', 'g7g6', 'f7f6', 'd7d6', 'c7c6', 'b7b6', 'a7a6', 'e6e5', 'h7h5', 'g7g5', 'f7f5', 'd7d5', 'c7c5', 'b7b5', 'a7a5']  
+[INFO] Board:
+[serve.py stdout] INFO:src.bot.search:Board:
+INFO:src.bot.search:r . b . k . . r
+INFO:src.bot.search:p p p p . p p p
+[serve.py stderr] [INFO] r . b . k . . r
+[INFO] p p p p . p p p
+[INFO] . . . . p . . .
+[INFO] . . . . . . . .
+[INFO] . b . . . . . .
+[serve.py stdout] INFO:src.bot.search:. . . . p . . .
+INFO:src.bot.search:. . . . . . . .
+INFO:src.bot.search:. b . . . . . .
+INFO:src.bot.search:. . . P . . P .
+INFO:src.bot.search:. q R . . . . .
+[serve.py stderr] [INFO] . . . P . . P .
+[INFO] . q R . . . . .
+[INFO] . . . K . B . .
+[INFO] Max depth: 8, Quiescence depth: 8
+[INFO] ============================================================
+[serve.py stdout] INFO:src.bot.search:. . . K . B . .
+INFO:src.bot.search:Max depth: 8, Quiescence depth: 8
+INFO:src.bot.search:============================================================
+ GET /api/reload/status 200 in 23ms (compile: 7ms, render: 16ms)
+[serve.py stderr] [INFO] Selected move: h8g8
+[serve.py stdout] INFO:src.bot.search:Selected move: h8g8
+INFO:src.bot.search:Score: 0.00
+INFO:src.bot.search:Depth completed: 0
+[serve.py stderr] [INFO] Score: 0.00
+[INFO] Depth completed: 0
+[INFO] Nodes searched: 104
+[serve.py stdout] INFO:src.bot.search:Nodes searched: 104
+INFO:src.bot.search:Top moves: [('h8g8', '1.000')]
+INFO:src.bot.search:============================================================
+[serve.py stderr] [INFO] Top moves: [('h8g8', '1.000')]
+[INFO] ============================================================
+[serve.py stdout] INFO:     127.0.0.1:49683 - "POST /move HTTP/1.1" 200 OK
+Received response from serve.py /move { status: 200 }
+ POST /api/bot 200 in 1252ms (compile: 5ms, render: 1248ms)
+ GET /api/reload/status 200 in 9ms (compile: 4ms, render: 6ms)
+ GET /api/reload/status 200 in 10ms (compile: 4ms, render: 6ms)
+ GET /api/reload/status 200 in 8ms (compile: 3ms, render: 5ms)
+ GET /api/reload/status 200 in 10ms (compile: 4ms, render: 6ms)
+ GET /api/reload/status 200 in 9ms (compile: 3ms, render: 5ms)
+
+
+-------
+
+INFO:src.bot.search:Depth completed: 1
+INFO:src.bot.search:Nodes searched: 124
+[serve.py stderr] [INFO] Score: 16.11
+[INFO] Depth completed: 1
+[INFO] Nodes searched: 124
+[INFO] Top moves: [('a8g8', '0.999'), ('h8g8', '0.001')]
+[INFO] ============================================================
+[serve.py stdout] INFO:src.bot.search:Top moves: [('a8g8', '0.999'), ('h8g8', '0.001')]
+INFO:src.bot.search:============================================================
+
+INFO:src.utils.decorator:Model stdout/stderr:
+============================================================
+BOARD STATE BEFORE SEARCH:
+FEN: r5Rk/ppp2p1p/2b1p3/4bp2/7q/5P2/PPP1B2P/R2Q3K b - - 1 21
+Side to move: Black
+Time limit: 1200ms
+Legal moves (2): ['h8g8', 'a8g8']
+Board:
+r . . . . . R k
+p p p . . p . p
+. . b . p . . .
+. . . . b p . .
+. . . . . . . q
+. . . . . P . .
+P P P . B . . P
+R . . Q . . . K
+Max depth: 8, Quiescence depth: 8
+============================================================
+
+INFO:     127.0.0.1:56467 - "POST /move HTTP/1.1" 200 OK
+Received response from serve.py /move { status: 200 }
+ POST /api/bot 200 in 1245ms (compile: 7ms, render: 1238ms)
+ GET /api/reload/status 200 in 8ms (compile: 3ms, render: 5ms)
+ GET /api/reload/status 200 in 11ms (compile: 3ms, render: 7ms)
+ GET /api/reload/status 200 in 10ms (compile: 3ms, render: 7ms)
+/api/bot POST received
+Proxying request to serve.py /move
+[serve.py stdout] pgn 1. e4 d5 2. d4 dxe4 3. Nc3 Nf6 4. Bc4 e6 5. Bg5 Rg8 6. Bxf6 gxf6 7. Nxe4 Rxg2 8. Nf3 Bg7 9. Ng3 Nc6 10. Kf1 Kf8 11. Kxg2 f5 12. Re1 Kg8 13. Ne5 Nxe5 14. dxe5 Bd7 15. Nh5 Qg5+ 16. Kh1 Bc6+ 17. f3 Qxh5 18. Be2 Qh4 19. Rg1 Kh8 20. Rg3 Bxe5 21. Rg8+ Rxg8 22. c3
+[serve.py stderr] [INFO] Selected move: h8g7
+[serve.py stdout] INFO:src.bot.search:Selected move: h8g7
+INFO:src.bot.search:Score: 0.00
+[serve.py stderr] [INFO] Score: 0.00
+[INFO] Depth completed: 0
+[INFO] Nodes searched: 100
+[INFO] Top moves: [('h8g7', '1.000')]
+[serve.py stdout] INFO:src.bot.search:Depth completed: 0
+INFO:src.bot.search:Nodes searched: 100
+INFO:src.bot.search:Top moves: [('h8g7', '1.000')]
+INFO:src.bot.search:============================================================
+[serve.py stderr] [INFO] ============================================================
+[serve.py stdout] INFO:src.utils.decorator:Model stdout/stderr:
+============================================================
+BOARD STATE BEFORE SEARCH:
+FEN: 6rk/ppp2p1p/2b1p3/4bp2/7q/2P2P2/PP2B2P/R2Q3K b - - 0 22
+Side to move: Black
+Time limit: 1200ms
+Legal moves (55): ['h8g7', 'g8f8', 'g8e8', 'g8d8', 'g8c8', 'g8b8', 'g8a8', 'g8g7', 'g8g6', 'g8g5', 'g8g4', 'g8g3', 'g8g2', 'g8g1', 'c6e8', 'c6d7', 'c6d5', 'c6b5', 'c6e4', 'c6a4', 'c6f3', 'e5g7', 'e5f6', 'e5d6', 'e5f4', 'e5d4', 'e5g3', 'e5c3', 'e5h2', 'h4d8', 'h4e7', 'h4h6', 'h4f6', 'h4h5', 'h4g5', 'h4g4', 'h4f4', 'h4e4', 'h4d4', 'h4c4', 'h4b4', 'h4a4', 'h4h3', 'h4g3', 'h4h2', 'h4f2', 'h4e1', 'h7h6', 'f7f6', 'b7b6', 'a7a6', 'f5f4', 'h7h5', 'b7b5', 'a7a5']
+Board:
+. . . . . . r k
+p p p . . p . p
+. . b . p . . .
+. . . . b p . .
+. . . . . . . q
+. . P . . P . .
+P P . . B . . P
+R . . Q . . . K
+Max depth: 8, Quiescence depth: 8
+============================================================
+Legal move: h8g7 Legal move: g8f8 Legal move: g8e8 Legal move: g8d8 Legal move: g8c8 Legal move: g8b8 Legal move: g8a8 Legal move: g8g7 Legal move: g8g6 Legal move: g8g5 Legal move: g8g4 Legal move: g8g3 Legal move: g8g2 Legal move: g8g1 Legal move: e5g7 Legal move: e5f6 Legal move: e5d6 Legal move: e5f4 Legal move: e5d4 Legal move: e5g3 Legal move: e5c3 Legal move: e5h2 Legal move: h4d8 Legal move: h4e7 Legal move: h4h6 Legal move: h4f6 Legal move: h4h5 Legal move: h4g5 Legal move: h4g4 Legal move: h4f4 Legal move: h4e4 Legal move: h4h3 Legal move: h4g3 Legal move: h4h2 Legal move: h4f2 Legal move: h4e1 Legal move: f5e4 Legal move: h7h6 Legal move: f7f6 Legal move: c7c6 Legal move: b7b6 Legal move: a7a6 Legal move: f5f4 Legal move: h7h5 Legal move: c7c5 Legal move: b7b5 Legal move: a7a5
+
+INFO:     127.0.0.1:57300 - "POST /move HTTP/1.1" 200 OK
+Received response from serve.py /move { status: 200 }
+ POST /api/bot 200 in 1244ms (compile: 4ms, render: 1240ms)
+ GET /api/reload/status 200 in 12ms (compile: 5ms, render: 7ms
