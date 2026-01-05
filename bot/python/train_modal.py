@@ -74,7 +74,7 @@ def preprocess_features():
         return np.array(features_list, dtype=np.float32)
     
     print("Loading dataset from Hugging Face...")
-    dataset = load_dataset("LegendaryAKx3/preprocessed-balanced", split="train")
+    dataset = load_dataset("LegendaryAKx3/heavy-preprocessed", split="train")
     
     print(f"Preprocessing {len(dataset):,} FEN strings to features...")
     print("This will take 30-60 minutes but only needs to be done once.")
@@ -258,7 +258,10 @@ def train_on_modal(
         
         return train_data, val_data
     
+
+    
     # Training setup
+    assert torch.cuda.is_available(), "CUDA GPU is required for training on Modal."
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
     print(f"Training with batch_size={batch_size}, lr={lr}, epochs={num_epochs}")
@@ -319,7 +322,8 @@ def train_on_modal(
         shuffle=True,
         pin_memory=True,
         persistent_workers=False,
-        prefetch_factor=None,
+        prefetch_factor=10,
+        num_workers=14,
     )
     val_loader = DataLoader(
         val_dataset,
@@ -328,6 +332,7 @@ def train_on_modal(
         pin_memory=True,
         persistent_workers=False,
         prefetch_factor=None,
+        num_workers=2,
     )
     
     criterion = nn.MSELoss()

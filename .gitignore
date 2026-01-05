@@ -7,8 +7,12 @@ devtools
 cached_features_v1.npz
 checkpoints/
 checkpoints-old/
+modal-compact-a100/
+lesslog16w-modal-compact-a100/
 bot\python\nnue_residual.bin
 bot\python\nnue_residual_rebalanced_preprocessed.bin
 bot\python\simple_nnue.bin
-
 *.npz
+.DS_Store
+mates-150m-60w-cpu64-modal-compact-a100/
+mates-5m-60w-cpu64-modal-compact-a100/
