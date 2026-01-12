@@ -1,5 +1,10 @@
 # ChessHacks Starter Bot
-Third place winner in the ChessHacks hackathon
+
+Third place winner in the ChessHacks hackathon. The main bot is made in python with the NNUE on huggingface. The search uses Alpha Beta pruning with some common strategies to reduce the number of positions searched.
+
+The NNUE helper items are located in bot/python. The main bot is located in src/.
+
+---
 
 This is a starter bot for ChessHacks. It includes a basic bot and devtools. This is designed to help you get used to what the interface for building a bot feels like, as well as how to scaffold your own bot.
 
@@ -78,7 +83,7 @@ Traceback (most recent call last):
 ImportError: attempted relative import with no known parent package
 ```
 
-you might think that you should remove the period before `utils` and that will fix the issue. But in reality, this will just cause more problems in the future! You aren't supposed to run `main.py ` on your own—it's designed for `serve.py` to run it for you within the subprocess. Removing the period would cause it to break during that step.
+you might think that you should remove the period before `utils` and that will fix the issue. But in reality, this will just cause more problems in the future! You aren't supposed to run `main.py` on your own—it's designed for `serve.py` to run it for you within the subprocess. Removing the period would cause it to break during that step.
 
 ### Logs
 
