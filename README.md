@@ -6,7 +6,6 @@ The NNUE helper items are located in bot/python. The main bot is located in src/
 
 ---
 
-This is a starter bot for ChessHacks. It includes a basic bot and devtools. This is designed to help you get used to what the interface for building a bot feels like, as well as how to scaffold your own bot.
 
 ## Directory Structure
 
@@ -93,11 +92,6 @@ Once you run the app, you should see logs from both the Next.js app and the Pyth
 
 By default, the Next.js app will automatically reload (dismount and remount the subprocess) when you make changes to the code in `/src` OR press the manual reload button on the frontend. This is called HMR (Hot Module Reloading). This means that you don't need to restart the app every time you make a change to the Python code. You can see how it's happening in real-time in the Next.js terminal.
 
-## Parting Words
-
-Keep in mind that you fully own all of this code! This entire devtool system runs locally, so feel free to modify it however you want. This is just designed as scaffolding to help you get started.
-
-If you need further help, please first check out the [docs](https://docs.chesshacks.dev/). If you still need help, please join our [Discord](https://docs.chesshacks.dev/resources/discord) and ask for help.
 
 ## Exporting SimpleNNUE weights for the C++ engine
 
