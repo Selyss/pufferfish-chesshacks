@@ -12,6 +12,7 @@ At a high level, the bot:
 - **Plugs into the ChessHacks devtools** via a Python backend that streams the current game state to the bot and returns the bot’s move.
 
 This codebase placed **third overall** in the ChessHacks hackathon. The main bot is written in Python, and the NNUE weights are hosted on Hugging Face.
+The remainder of the README contains details about the ChessHacks Dev environment 
 
 ---
 
@@ -99,15 +100,3 @@ Once you run the app, you should see logs from both the Next.js app and the Pyth
 ## HMR (Hot Module Reloading)
 
 By default, the Next.js app will automatically reload (dismount and remount the subprocess) when you make changes to the code in `/src` OR press the manual reload button on the frontend. This is called HMR (Hot Module Reloading). This means that you don't need to restart the app every time you make a change to the Python code. You can see how it's happening in real-time in the Next.js terminal.
-
-## Exporting SimpleNNUE weights for the C++ engine
-
-The C++ `pufferfish` backend consumes a float32 `residual-nnue-v1` binary with the 795-dimension SimpleNNUE architecture (five dense stages with residual refinements). Convert a training checkpoint to this format with:
-
-```bash
-python bot/python/export_residual_nnue.py \
-  --input bot/python/epoch1.pt \
-  --output bot/python/simple_nnue.bin
-```
-
-The exporter reads the `model_config` metadata from the checkpoint, walks through every Linear/LayerNorm/ResidualBlock in order (dropout is ignored at inference time), and writes the JSON header plus per-layer records expected by `pufferfish/engine/simple_nnue.cpp`. After exporting, build/run the C++ engine and it will pick up `bot/python/simple_nnue.bin` automatically (with fallbacks for the previous preprocessed weights).
