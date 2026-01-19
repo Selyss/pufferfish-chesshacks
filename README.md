@@ -1,11 +1,19 @@
 # ChessHacks Starter Bot
 
-Third place winner in the ChessHacks hackathon. The main bot is made in python with the NNUE on huggingface. The search uses Alpha Beta pruning with some common strategies to reduce the number of positions searched.
+## Bot Overview
 
-The NNUE helper items are located in bot/python. The main bot is located in src/.
+This repository contains our ChessHacks competition bot, a hybrid engine that combines a fast alpha-beta search with a neural evaluation network (NNUE). The search explores candidate lines with classic pruning techniques, while the NNUE provides a learned evaluation of positions to guide move ordering and scoring. Together, this pairing balances tactical calculation depth with positional judgment, making the bot strong and responsive in real-time play.
+
+At a high level, the bot:
+
+- **Generates legal moves** and orders them with heuristics to focus the search on promising lines first.
+- **Searches with alpha-beta pruning** to reduce the number of positions evaluated while preserving tactical accuracy.
+- **Evaluates leaf nodes with NNUE** for fast, high-quality scoring of board positions.
+- **Plugs into the ChessHacks devtools** via a Python backend that streams the current game state to the bot and returns the bot’s move.
+
+This codebase placed **third overall** in the ChessHacks hackathon. The main bot is written in Python, and the NNUE weights are hosted on Hugging Face.
 
 ---
-
 
 ## Directory Structure
 
@@ -91,7 +99,6 @@ Once you run the app, you should see logs from both the Next.js app and the Pyth
 ## HMR (Hot Module Reloading)
 
 By default, the Next.js app will automatically reload (dismount and remount the subprocess) when you make changes to the code in `/src` OR press the manual reload button on the frontend. This is called HMR (Hot Module Reloading). This means that you don't need to restart the app every time you make a change to the Python code. You can see how it's happening in real-time in the Next.js terminal.
-
 
 ## Exporting SimpleNNUE weights for the C++ engine
 
