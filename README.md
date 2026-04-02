@@ -1,4 +1,4 @@
-# ChessHacks Starter Bot
+# Pufferfish
 
 ## Bot Overview
 
