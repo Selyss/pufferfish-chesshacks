@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <system_error>
 #include <cstdint>
+#include <thread>
+#include <atomic>
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #endif
@@ -305,6 +307,21 @@ static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
     Position pos;
     pos.set_startpos();
 
+    // The search runs on its own thread so the loop can keep reading input.
+    // UCI requires "go infinite" to search until "stop" arrives, and requires
+    // "isready" to be answered even mid-search; both are impossible if the
+    // search blocks the only thread. Without this the engine simply hung.
+    std::atomic<bool> stopFlag{false};
+    std::thread searchThread;
+    SearchContext ctx;
+
+    auto finishSearch = [&]()
+    {
+        stopFlag.store(true, std::memory_order_relaxed);
+        if (searchThread.joinable())
+            searchThread.join();
+    };
+
     // Keys of every position the game passed through before the current one.
     // The search needs these to see a repetition that began before its root.
     std::vector<Key> gameKeys;
@@ -329,6 +346,7 @@ static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
         }
         else if (token == "ucinewgame")
         {
+            finishSearch();
             tt.resize(64); // clears
             pos.set_startpos();
             gameKeys.clear();
@@ -350,6 +368,7 @@ static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
         }
         else if (token == "position")
         {
+            finishSearch();
             std::string sub;
             is >> sub;
             gameKeys.clear();
@@ -399,10 +418,12 @@ static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
         }
         else if (token == "go")
         {
-            SearchContext ctx;
+            finishSearch(); // never run two searches at once
+            ctx = SearchContext{};
             ctx.tt = &tt;
             ctx.nn = evaluator;
             ctx.repetitionKeys = gameKeys;
+            ctx.stop = &stopFlag;
             long long movetime = 0, wtime = 0, btime = 0, winc = 0, binc = 0;
             int depth = 0;
             std::string w;
@@ -448,20 +469,36 @@ static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
                 }
             }
 
-            SearchResult res = search(pos, ctx);
-            std::uint64_t nodes = ctx.stats.nodes + ctx.stats.qnodes;
-            std::cout << "info depth " << res.depth << " score cp " << res.score
-                      << " nodes " << nodes << std::endl;
-            if (res.bestMove == MOVE_NONE)
-                std::cout << "bestmove 0000" << std::endl;
-            else
-                std::cout << "bestmove " << move_to_uci(res.bestMove) << std::endl;
+            stopFlag.store(false, std::memory_order_relaxed);
+            Position searchPos = pos;
+            searchThread = std::thread(
+                [&ctx, searchPos]() mutable
+                {
+                    SearchResult res = search(searchPos, ctx);
+                    std::uint64_t nodes = ctx.stats.nodes + ctx.stats.qnodes;
+                    std::cout << "info depth " << res.depth << " score cp " << res.score
+                              << " nodes " << nodes << std::endl;
+                    if (res.bestMove == MOVE_NONE)
+                        std::cout << "bestmove 0000" << std::endl;
+                    else
+                        std::cout << "bestmove " << move_to_uci(res.bestMove) << std::endl;
+                });
+        }
+        else if (token == "stop")
+        {
+            finishSearch();
+        }
+        else if (token == "ponderhit")
+        {
+            // Not implemented; the search is already running normally.
         }
         else if (token == "quit")
         {
+            finishSearch();
             break;
         }
     }
+    finishSearch();
     (void)loadedPath;
     return 0;
 }

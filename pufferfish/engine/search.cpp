@@ -322,7 +322,8 @@ namespace pf
                 break;
             }
 
-            const bool timeUp = ctx.tm.is_time_up(now_ms());
+            const bool stopped = ctx.stop && ctx.stop->load(std::memory_order_relaxed);
+            const bool timeUp = stopped || ctx.tm.is_time_up(now_ms());
 
             // Record the iteration before honouring the time check. Breaking first
             // meant that running out of time during depth 1 returned MOVE_NONE and
@@ -364,6 +365,9 @@ namespace pf
 
     static bool should_abort(const SearchContext &ctx)
     {
+        // A "stop" from the GUI ends the search whatever the clock says.
+        if (ctx.stop && ctx.stop->load(std::memory_order_relaxed))
+            return true;
         if (ctx.tm.alloc_ms == 0)
             return false;
         std::uint64_t now = now_ms();

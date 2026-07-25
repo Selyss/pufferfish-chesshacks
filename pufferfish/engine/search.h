@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <atomic>
 
 #include "types.h"
 #include "position.h"
@@ -26,6 +27,11 @@ namespace pf
         NNEvaluator *nn = nullptr;
         TimeManager tm;
         SearchLimits limits;
+
+        // Set by the UCI loop from another thread to end the search early. UCI
+        // requires "go infinite" to run until "stop" arrives, which is impossible
+        // if the search owns the only thread and never reads input again.
+        std::atomic<bool> *stop = nullptr;
 
         Move killers[2][MAX_PLY]{};
         int history[PIECE_NB][64]{};
