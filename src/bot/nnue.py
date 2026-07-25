@@ -117,6 +117,23 @@ class NNUEState:
 
         self._stack.append(delta)
 
+    def push_null(self) -> None:
+        """Pass the turn without moving, for null-move pruning.
+
+        Only the side-to-move and en-passant features change. Both go through the
+        same delta mechanism as a real move, so pop() undoes a null push unchanged.
+        """
+        delta = StateDelta(
+            material_before=self._material_balance,
+            ep_file_before=self._current_ep_file,
+            piece_counts_before=self._piece_counts.copy(),
+            total_pieces_before=self._total_pieces,
+        )
+        self.board.push(chess.Move.null())
+        self._update_side_to_move(delta)
+        self._update_en_passant(delta)  # a null move always clears the ep square
+        self._stack.append(delta)
+
     def pop(self) -> None:
         if not self._stack:
             raise IndexError("Cannot pop from an empty NNUE state stack.")
