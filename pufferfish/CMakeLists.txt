@@ -31,6 +31,8 @@ add_library(pufferfish_engine
 	engine/nnue_constants.h
 	engine/nnue.h
 	engine/nnue.cpp
+	engine/nnue_float.h
+	engine/nnue_float.cpp
 	engine/features.h
 	engine/features.cpp
 	engine/nn_interface.h

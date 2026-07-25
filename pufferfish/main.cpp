@@ -13,6 +13,7 @@
 #include "engine/tt.h"
 #include "engine/nn_interface.h"
 #include "engine/simple_nnue.h"
+#include "engine/nnue_float.h"
 #include "engine/search.h"
 
 using namespace pf;
@@ -283,6 +284,7 @@ int main(int argc, char **argv)
     // Note SimpleNNUEEvaluator implements the older SimpleNNUE architecture, whose
     // residual blocks carry a LayerNorm. It cannot represent the newer "compact"
     // checkpoints (no LayerNorm, trailing ReLU) such as inference006.pt.
+    FloatNNUEEvaluator fnn;
     NNUEEvaluator inn;
     SimpleNNUEEvaluator snn;
     NNEvaluator *evaluator = nullptr;
@@ -290,6 +292,12 @@ int main(int argc, char **argv)
     bool loaded = false;
     const char *loadedPath = nullptr;
 
+    const char *floatPaths[] = {
+        "bot/python/nnue_float.bin",
+        "../bot/python/nnue_float.bin",
+        "../../bot/python/nnue_float.bin",
+        "../../../bot/python/nnue_float.bin",
+    };
     const char *int16Paths[] = {
         "bot/python/nnue_weights.bin",
         "../bot/python/nnue_weights.bin",
@@ -316,26 +324,43 @@ int main(int argc, char **argv)
             }
         }
     }
+    else if (std::getenv("PUFFERFISH_INT16_NNUE") != nullptr)
+    {
+        // Opt-in only: the committed int16 weights evaluate every position as 0,
+        // because export_int16.py divides by the quantization scale instead of
+        // multiplying and all 393,216 accumulator weights round away. Kept so a
+        // corrected int16 export can be tested without touching this file.
+        for (const char *p : int16Paths)
+        {
+            if (inn.load(p))
+            {
+                loaded = true;
+                loadedPath = p;
+                evaluator = static_cast<NNEvaluator *>(&inn);
+                break;
+            }
+        }
+    }
     else
     {
         if (const char *envPath = std::getenv("PUFFERFISH_NNUE_PATH"))
         {
-            if (inn.load(envPath))
+            if (fnn.load(envPath))
             {
                 loaded = true;
                 loadedPath = envPath;
-                evaluator = static_cast<NNEvaluator *>(&inn);
+                evaluator = static_cast<NNEvaluator *>(&fnn);
             }
         }
         if (!loaded)
         {
-            for (const char *p : int16Paths)
+            for (const char *p : floatPaths)
             {
-                if (inn.load(p))
+                if (fnn.load(p))
                 {
                     loaded = true;
                     loadedPath = p;
-                    evaluator = static_cast<NNEvaluator *>(&inn);
+                    evaluator = static_cast<NNEvaluator *>(&fnn);
                     break;
                 }
             }
@@ -350,7 +375,8 @@ int main(int argc, char **argv)
     else
     {
         std::cerr << "info nnue_loaded " << loadedPath
-                  << (evaluator == static_cast<NNEvaluator *>(&snn) ? " simple" : " int16")
+                  << (evaluator == static_cast<NNEvaluator *>(&snn) ? " simple"
+                       : evaluator == static_cast<NNEvaluator *>(&inn) ? " int16" : " float32")
                   << std::endl;
     }
 
