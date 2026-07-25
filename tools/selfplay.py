@@ -268,11 +268,13 @@ def play_game(ea: Engine, eb: Engine, fen: str, a_white: bool,
 
 
 def elo(score: float) -> float:
-    if score <= 0:
-        return float("-inf")
-    if score >= 1:
-        return float("inf")
-    return -400.0 * math.log10(1.0 / score - 1.0)
+    # A clean sweep is infinite Elo in the logistic model, which is useless to
+    # print. Clamp to the rate a single unplayed counter-result would imply.
+    if score <= 0.0:
+        return -800.0
+    if score >= 1.0:
+        return 800.0
+    return max(-800.0, min(800.0, -400.0 * math.log10(1.0 / score - 1.0)))
 
 
 def elo_to_score(e: float) -> float:
@@ -296,6 +298,14 @@ class SPRT:
     early on noise.
     """
 
+    # A run of identical results makes the sample variance zero, and dividing by a
+    # clamped epsilon then produces an astronomically large LLR from a handful of
+    # games -- an early version of this stopped a match after 3 wins claiming an
+    # LLR of 4.2e7. Variance is therefore estimated from Laplace-smoothed win/draw/
+    # loss frequencies, which cannot collapse, and no verdict is issued before
+    # MIN_GAMES regardless.
+    MIN_GAMES = 20
+
     def __init__(self, elo0: float, elo1: float, alpha: float, beta: float):
         self.s0 = elo_to_score(elo0)
         self.s1 = elo_to_score(elo1)
@@ -305,13 +315,22 @@ class SPRT:
 
     def llr(self, scores: list[float]) -> float:
         n = len(scores)
-        if n < 3:
+        if n < self.MIN_GAMES:
             return 0.0
         total = sum(scores)
-        mean = total / n
-        var = sum((x - mean) ** 2 for x in scores) / (n - 1)
-        if var < 1e-9:
-            var = 1e-9
+
+        wins = sum(1 for x in scores if x == 1.0)
+        draws = sum(1 for x in scores if x == 0.5)
+        losses = n - wins - draws
+        # Laplace smoothing: half a pseudo-count on each outcome.
+        denom = n + 1.5
+        pw = (wins + 0.5) / denom
+        pd = (draws + 0.5) / denom
+        pl = (losses + 0.5) / denom
+        mean = pw + 0.5 * pd
+        var = (pw + 0.25 * pd) - mean * mean
+        var = max(var, 1e-4)
+
         return (self.s1 - self.s0) * (2 * total - n * (self.s0 + self.s1)) / (2 * var)
 
     def verdict(self, scores: list[float]) -> tuple[str | None, float]:
