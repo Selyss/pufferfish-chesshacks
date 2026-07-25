@@ -183,17 +183,36 @@ namespace pf
                 break;
             }
 
-            if (ctx.tm.is_time_up(now_ms()))
-                break;
+            const bool timeUp = ctx.tm.is_time_up(now_ms());
 
-            if (pv.len > 0)
+            // Record the iteration before honouring the time check. Breaking first
+            // meant that running out of time during depth 1 returned MOVE_NONE and
+            // the engine emitted "bestmove 0000", forfeiting the game. A partial
+            // iteration is trusted only when there is nothing better to fall back on.
+            if (pv.len > 0 && (!timeUp || result.bestMove == MOVE_NONE))
             {
                 result.bestMove = pv.moves[0];
                 bestSoFar = pv.moves[0];
+                result.score = score;
+                result.depth = depth;
+                rootPV = pv;
             }
-            result.score = score;
-            result.depth = depth;
-            rootPV = pv;
+
+            if (timeUp)
+                break;
+        }
+
+        // Last resort: never return "no move" for a position that has one.
+        if (result.bestMove == MOVE_NONE)
+        {
+            MoveList ml;
+            generate_moves(pos, ml);
+            filter_legal_moves(pos, ml);
+            if (ml.count > 0)
+            {
+                result.bestMove = ml.moves[0];
+                result.depth = 1;
+            }
         }
 
         (void)rootPV; // could be logged/used for UI
