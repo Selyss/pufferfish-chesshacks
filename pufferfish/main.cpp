@@ -5,6 +5,13 @@
 #include <string>
 #include <cstdlib>
 #include <chrono>
+#include <vector>
+#include <filesystem>
+#include <system_error>
+#include <cstdint>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 #include "engine/types.h"
 #include "engine/bitboard.h"
@@ -193,6 +200,66 @@ static std::string move_to_san(Position &pos, Move m)
     else if (givesCheck)
         san += '+';
     return san;
+}
+
+// Directory containing this executable.
+//
+// Weights used to be looked up relative to the working directory, which is fine
+// when you run the binary from the repository but not when something else starts
+// it. Chess GUIs launch engines from an arbitrary directory and generally offer
+// no way to set one -- En Croissant, for instance, exposes only name, Elo, search
+// limits and UCI options -- so the engine would start and immediately die with
+// nnue_load_failed. Resolving relative to the binary makes it work wherever it is
+// launched from, which lichess-bot will need too.
+static std::string executable_dir(const char *argv0)
+{
+    std::error_code ec;
+#if defined(__APPLE__)
+    char buf[8192];
+    std::uint32_t size = sizeof(buf);
+    if (_NSGetExecutablePath(buf, &size) == 0)
+    {
+        auto p = std::filesystem::weakly_canonical(std::filesystem::path(buf), ec);
+        if (!ec)
+            return p.parent_path().string();
+    }
+#elif defined(__linux__)
+    auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (!ec)
+        return p.parent_path().string();
+#endif
+    if (argv0 && *argv0)
+    {
+        auto p = std::filesystem::weakly_canonical(std::filesystem::path(argv0), ec);
+        if (!ec)
+            return p.parent_path().string();
+    }
+    return std::filesystem::current_path(ec).string();
+}
+
+// Candidate locations for a weights file, most specific first: an explicit
+// override, then upward from the executable, then upward from the working
+// directory (which keeps every existing invocation working).
+static std::vector<std::string> weight_candidates(const char *argv0,
+                                                  const char *relative)
+{
+    std::vector<std::string> out;
+    const std::string exeDir = executable_dir(argv0);
+    std::filesystem::path base(exeDir);
+    for (int i = 0; i < 5; ++i)
+    {
+        out.push_back((base / relative).string());
+        if (!base.has_parent_path() || base.parent_path() == base)
+            break;
+        base = base.parent_path();
+    }
+    std::string up;
+    for (int i = 0; i < 5; ++i)
+    {
+        out.push_back(up + relative);
+        up += "../";
+    }
+    return out;
 }
 
 // Find the legal move matching a UCI string such as "e2e4" or "e7e8q".
@@ -499,20 +566,12 @@ int main(int argc, char **argv)
     NNEvaluator *evaluator = nullptr;
 
     bool loaded = false;
-    const char *loadedPath = nullptr;
+    std::string loadedPathStr;
 
-    const char *floatPaths[] = {
-        "bot/python/nnue_float.bin",
-        "../bot/python/nnue_float.bin",
-        "../../bot/python/nnue_float.bin",
-        "../../../bot/python/nnue_float.bin",
-    };
-    const char *int16Paths[] = {
-        "bot/python/nnue_weights.bin",
-        "../bot/python/nnue_weights.bin",
-        "../../bot/python/nnue_weights.bin",
-        "../../../bot/python/nnue_weights.bin",
-    };
+    const std::vector<std::string> floatPaths =
+        weight_candidates(argv[0], "bot/python/nnue_float.bin");
+    const std::vector<std::string> int16Paths =
+        weight_candidates(argv[0], "bot/python/nnue_weights.bin");
     const char *simplePaths[] = {
         "bot/python/nnue_residual_rebalanced_preprocessed.bin",
         "../bot/python/nnue_residual_rebalanced_preprocessed.bin",
@@ -527,7 +586,7 @@ int main(int argc, char **argv)
             if (snn.load(p))
             {
                 loaded = true;
-                loadedPath = p;
+                loadedPathStr = p;
                 evaluator = static_cast<NNEvaluator *>(&snn);
                 break;
             }
@@ -539,12 +598,12 @@ int main(int argc, char **argv)
         // because export_int16.py divides by the quantization scale instead of
         // multiplying and all 393,216 accumulator weights round away. Kept so a
         // corrected int16 export can be tested without touching this file.
-        for (const char *p : int16Paths)
+        for (const std::string &p : int16Paths)
         {
-            if (inn.load(p))
+            if (inn.load(p.c_str()))
             {
                 loaded = true;
-                loadedPath = p;
+                loadedPathStr = p;
                 evaluator = static_cast<NNEvaluator *>(&inn);
                 break;
             }
@@ -557,18 +616,18 @@ int main(int argc, char **argv)
             if (fnn.load(envPath))
             {
                 loaded = true;
-                loadedPath = envPath;
+                loadedPathStr = envPath;
                 evaluator = static_cast<NNEvaluator *>(&fnn);
             }
         }
         if (!loaded)
         {
-            for (const char *p : floatPaths)
+            for (const std::string &p : floatPaths)
             {
-                if (fnn.load(p))
+                if (fnn.load(p.c_str()))
                 {
                     loaded = true;
-                    loadedPath = p;
+                    loadedPathStr = p;
                     evaluator = static_cast<NNEvaluator *>(&fnn);
                     break;
                 }
@@ -583,14 +642,14 @@ int main(int argc, char **argv)
     }
     else
     {
-        std::cerr << "info nnue_loaded " << loadedPath
+        std::cerr << "info nnue_loaded " << loadedPathStr
                   << (evaluator == static_cast<NNEvaluator *>(&snn) ? " simple"
                        : evaluator == static_cast<NNEvaluator *>(&inn) ? " int16" : " float32")
                   << std::endl;
     }
 
     if (uci)
-        return uci_loop(evaluator, loadedPath);
+        return uci_loop(evaluator, loadedPathStr.c_str());
 
     SearchContext ctx;
     ctx.tt = &tt;
