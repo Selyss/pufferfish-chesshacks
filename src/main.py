@@ -29,6 +29,11 @@ class SearchEngine:
         self._config = self._load_config()
         self._evaluator: NNUEEvaluator | None = None
         self._search: AlphaBetaSearch | None = None
+        # CHESSBOT_ENGINE=cpp hands the position to the C++ engine over UCI
+        # instead of running the Python search, so the devtools board can play
+        # the stronger engine without any change on the web side.
+        self._backend = os.getenv("CHESSBOT_ENGINE", "python").strip().lower()
+        self._cpp = None
 
     def _load_config(self) -> EngineConfig:
         local_ckpt = Path(__file__).resolve().parent / "bot" / "checkpoints" / "inference006.pt"
@@ -98,6 +103,17 @@ class SearchEngine:
         return hf_hub_download(repo_id=repo_id, filename=filename, revision=revision)
 
     def ensure_ready(self) -> None:
+        if self._backend == "cpp":
+            if self._cpp is None:
+                from .bot.cpp_engine import CppEngine
+                movetime = os.getenv("CHESSBOT_CPP_MOVETIME_MS")
+                depth = os.getenv("CHESSBOT_CPP_DEPTH")
+                self._cpp = CppEngine(
+                    movetime_ms=int(movetime) if movetime else None,
+                    depth=int(depth) if depth else None,
+                )
+                print(f"[engine] using C++ backend at {self._cpp.path}")
+            return
         if self._search is not None:
             return
         try:
@@ -119,6 +135,16 @@ class SearchEngine:
 
     def select_move(self, ctx: GameContext) -> chess.Move:
         self.ensure_ready()
+
+        if self._backend == "cpp":
+            assert self._cpp is not None
+            move = self._cpp.select_move(ctx.board, ctx.timeLeft)
+            ctx.logProbabilities({move: 1.0})
+            if move not in ctx.board.legal_moves:
+                raise ValueError(
+                    f"C++ engine returned illegal move {move.uci()} in {ctx.board.fen()}")
+            return move
+
         assert self._evaluator is not None and self._search is not None
         state = self._evaluator.initial_state(ctx.board)
         budget = self._allocate_time(ctx.timeLeft)
@@ -134,6 +160,10 @@ class SearchEngine:
         return result.move
 
     def reset(self) -> None:
+        if self._backend == "cpp":
+            if self._cpp is not None:
+                self._cpp.reset()
+            return
         if self._search is not None:
             self._search.nodes = 0
 
