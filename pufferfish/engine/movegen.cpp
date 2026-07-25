@@ -130,23 +130,39 @@ namespace pf
             list.push(make_move(from, to, us == WHITE ? W_KING : B_KING, 0, flags));
         }
 
-        // Castling (very basic, assumes castling rights encoded externally)
-        // This implementation trusts Position::do_move + legality filter to reject illegal castle through check.
+        // Castling.
+        //
+        // The king may not start in check, pass through an attacked square, or
+        // land on one. The old code checked only the first of those and left the
+        // rest to filter_legal_moves -- but that filter just asks whether the king
+        // is in check after the move, which catches the destination and never the
+        // square it crosses. So castling through an attacked square was generated
+        // and played: in a real self-play game the engine answered O-O with f1
+        // raked by a queen on a6, which is an instant forfeit under any arbiter.
+        //
+        // The rook's path only has to be empty, not safe, which is why the
+        // emptiness test for queenside covers b1/b8 but the safety test does not.
         if (!pos.in_check(us))
         {
+            const Color them = Color(us ^ 1);
+            auto pathSafe = [&](int a, int b)
+            { return !pos.is_square_attacked(a, them) && !pos.is_square_attacked(b, them); };
+
             // White: rights bits 0 (K) and 1 (Q); Black: 2 (K) and 3 (Q)
             if (us == WHITE)
             {
                 // King side
                 if (pos.castling_rights & 0b0001)
                 {
-                    if (!(pos.occupiedBB & ((Bitboard(1) << 5) | (Bitboard(1) << 6))))
+                    if (!(pos.occupiedBB & ((Bitboard(1) << 5) | (Bitboard(1) << 6))) &&
+                        pathSafe(5, 6))
                         list.push(make_move(4, 6, W_KING, 0, FLAG_CASTLING));
                 }
                 // Queen side
                 if (pos.castling_rights & 0b0010)
                 {
-                    if (!(pos.occupiedBB & ((Bitboard(1) << 1) | (Bitboard(1) << 2) | (Bitboard(1) << 3))))
+                    if (!(pos.occupiedBB & ((Bitboard(1) << 1) | (Bitboard(1) << 2) | (Bitboard(1) << 3))) &&
+                        pathSafe(3, 2))
                         list.push(make_move(4, 2, W_KING, 0, FLAG_CASTLING));
                 }
             }
@@ -154,12 +170,14 @@ namespace pf
             {
                 if (pos.castling_rights & 0b0100)
                 {
-                    if (!(pos.occupiedBB & ((Bitboard(1) << 61) | (Bitboard(1) << 62))))
+                    if (!(pos.occupiedBB & ((Bitboard(1) << 61) | (Bitboard(1) << 62))) &&
+                        pathSafe(61, 62))
                         list.push(make_move(60, 62, B_KING, 0, FLAG_CASTLING));
                 }
                 if (pos.castling_rights & 0b1000)
                 {
-                    if (!(pos.occupiedBB & ((Bitboard(1) << 57) | (Bitboard(1) << 58) | (Bitboard(1) << 59))))
+                    if (!(pos.occupiedBB & ((Bitboard(1) << 57) | (Bitboard(1) << 58) | (Bitboard(1) << 59))) &&
+                        pathSafe(59, 58))
                         list.push(make_move(60, 58, B_KING, 0, FLAG_CASTLING));
                 }
             }
