@@ -95,12 +95,15 @@ def build_revision(rev: str, verbose: bool = True) -> str:
 class Engine:
     """Drives one engine binary, over UCI when available, else the one-shot CLI."""
 
-    def __init__(self, path: str, name: str):
+    def __init__(self, path: str, name: str, protocol: str = "auto"):
         self.path = path
         self.name = name
         self.proc: subprocess.Popen | None = None
         self.protocol = "oneshot"
-        self._try_uci()
+        if protocol in ("auto", "uci"):
+            self._try_uci()
+        if protocol == "uci" and self.protocol != "uci":
+            raise SystemExit(f"{name} does not support UCI (added in 14e09fb)")
 
     def _try_uci(self) -> None:
         try:
@@ -272,6 +275,54 @@ def elo(score: float) -> float:
     return -400.0 * math.log10(1.0 / score - 1.0)
 
 
+def elo_to_score(e: float) -> float:
+    return 1.0 / (1.0 + 10.0 ** (-e / 400.0))
+
+
+class SPRT:
+    """Sequential probability ratio test, so a match stops as soon as it is settled.
+
+    Tests H0 "A is no better than elo0" against H1 "A is at least elo1 better",
+    accumulating a log-likelihood ratio after each game and stopping when it
+    crosses a bound. For a normal model with sample variance,
+
+        LLR = (s1 - s0) * (2*sum - N*(s0 + s1)) / (2*var)
+
+    with bounds log(beta/(1-alpha)) and log((1-beta)/alpha).
+
+    The point of this is to spend games where they are informative: a clearly
+    good or clearly bad change settles in far fewer games than a fixed N, while a
+    genuinely marginal one is allowed to run to the cap instead of being called
+    early on noise.
+    """
+
+    def __init__(self, elo0: float, elo1: float, alpha: float, beta: float):
+        self.s0 = elo_to_score(elo0)
+        self.s1 = elo_to_score(elo1)
+        self.elo0, self.elo1 = elo0, elo1
+        self.lower = math.log(beta / (1.0 - alpha))
+        self.upper = math.log((1.0 - beta) / alpha)
+
+    def llr(self, scores: list[float]) -> float:
+        n = len(scores)
+        if n < 3:
+            return 0.0
+        total = sum(scores)
+        mean = total / n
+        var = sum((x - mean) ** 2 for x in scores) / (n - 1)
+        if var < 1e-9:
+            var = 1e-9
+        return (self.s1 - self.s0) * (2 * total - n * (self.s0 + self.s1)) / (2 * var)
+
+    def verdict(self, scores: list[float]) -> tuple[str | None, float]:
+        v = self.llr(scores)
+        if v >= self.upper:
+            return "H1", v   # A is stronger by at least elo1
+        if v <= self.lower:
+            return "H0", v   # A is not better than elo0
+        return None, v
+
+
 def report(results: list[Result], a: str, b: str) -> str:
     n = len(results)
     if not n:
@@ -311,6 +362,17 @@ def main() -> int:
     ap.add_argument("--movetime", type=int, default=200)
     ap.add_argument("--seed", type=int, default=0xC0FFEE)
     ap.add_argument("--opening-plies", type=int, default=8)
+    ap.add_argument("--protocol", choices=["auto", "uci", "oneshot"], default="auto",
+                    help="force a protocol for BOTH engines. 'oneshot' is the fair "
+                         "setting when comparing against a revision that predates "
+                         "UCI, since otherwise the newer build alone keeps a warm "
+                         "transposition table across moves")
+    ap.add_argument("--sprt", action="store_true",
+                    help="stop as soon as the result is statistically settled")
+    ap.add_argument("--elo0", type=float, default=0.0, help="SPRT null hypothesis")
+    ap.add_argument("--elo1", type=float, default=10.0, help="SPRT alternative")
+    ap.add_argument("--alpha", type=float, default=0.05)
+    ap.add_argument("--beta", type=float, default=0.05)
     ap.add_argument("--list", action="store_true", help="show buildable revisions")
     ap.add_argument("--clean", action="store_true", help="remove build worktrees")
     args = ap.parse_args()
@@ -337,9 +399,14 @@ def main() -> int:
     print(f"building B={args.b} ({sha_b})")
     bin_b = build_revision(args.b)
 
-    ea = Engine(bin_a, f"A/{sha_a}")
-    eb = Engine(bin_b, f"B/{sha_b}")
+    ea = Engine(bin_a, f"A/{sha_a}", args.protocol)
+    eb = Engine(bin_b, f"B/{sha_b}", args.protocol)
     print(f"protocols: A={ea.protocol}  B={eb.protocol}")
+    if ea.protocol != eb.protocol:
+        print("  WARNING: protocols differ. The uci side keeps its transposition\n"
+              "           table warm across moves and the oneshot side does not,\n"
+              "           which is an advantage unrelated to the code being tested.\n"
+              "           Use --protocol oneshot for a fair comparison.")
     if sha_a == sha_b:
         print("(self-test: same revision both sides; expect ~50%, not exactly 50%,\n"
               " because the engines are time-limited and therefore nondeterministic)")
@@ -352,21 +419,49 @@ def main() -> int:
                 break
             jobs.append((f, a_white))
 
+    sprt = SPRT(args.elo0, args.elo1, args.alpha, args.beta) if args.sprt else None
+    if sprt:
+        print(f"SPRT  H0: elo<={args.elo0:g}   H1: elo>={args.elo1:g}   "
+              f"bounds [{sprt.lower:.2f}, {sprt.upper:.2f}]   cap {len(jobs)} games")
+
     results: list[Result] = []
+    stopped = None
     t0 = time.perf_counter()
     try:
         for i, (fen, a_white) in enumerate(jobs, 1):
             results.append(play_game(ea, eb, fen, a_white, args.movetime))
             sc = sum(r.score_a for r in results) / len(results)
             rate = (time.perf_counter() - t0) / len(results)
-            print(f"\r  {i}/{len(jobs)}  score {sc*100:5.1f}%  "
+            extra = ""
+            if sprt:
+                decision, v = sprt.verdict([r.score_a for r in results])
+                extra = f"  LLR {v:+.2f}"
+                if decision:
+                    print(f"\r  {i}/{len(jobs)}  score {sc*100:5.1f}%{extra}"
+                          f"   -> {decision} after {i} games" + " " * 12)
+                    stopped = decision
+                    break
+            print(f"\r  {i}/{len(jobs)}  score {sc*100:5.1f}%{extra}  "
                   f"eta {rate*(len(jobs)-i)/60:4.1f}m", end="", flush=True)
-        print()
+        if stopped is None:
+            print()
     finally:
         ea.close()
         eb.close()
 
     print(report(results, f"{args.a} ({sha_a})", f"{args.b} ({sha_b})"))
+    if sprt:
+        _, v = sprt.verdict([r.score_a for r in results])
+        if stopped == "H1":
+            print(f"SPRT accepted H1: A is stronger than B by at least "
+                  f"{args.elo1:g} Elo  (LLR {v:+.2f})")
+        elif stopped == "H0":
+            print(f"SPRT accepted H0: A is not more than {args.elo0:g} Elo "
+                  f"stronger than B  (LLR {v:+.2f})")
+        else:
+            print(f"SPRT inconclusive at the {len(results)}-game cap "
+                  f"(LLR {v:+.2f}, needs {sprt.lower:.2f} or {sprt.upper:.2f}) "
+                  f"-- raise --games to settle it")
     return 0
 
 
