@@ -355,6 +355,12 @@ namespace pf
             colorBB[them] ^= capBB;
             occupiedBB ^= capBB;
             key ^= Zobrist.piece[capPiece][capSq];
+            // The mailbox was never cleared here, so after an en-passant capture
+            // board[] kept a phantom pawn that the bitboards no longer had. Anything
+            // reading the mailbox -- evaluation, SAN, capture detection on that
+            // square -- saw a piece that was not on the board. undo_move already had
+            // the matching board[capSq] = capPiece restore.
+            board[capSq] = NO_PIECE;
             u.captured = capPiece;
         }
         else if (occupiedBB & toBB)
@@ -415,6 +421,31 @@ namespace pf
                 castling_rights &= ~0b0011;
             else
                 castling_rights &= ~0b1100;
+        }
+        // Rights must also die when a rook leaves its corner or is captured on it.
+        // Without this the engine kept believing it could castle after its rook had
+        // moved, so movegen produced an illegal O-O-O; executing it XORed a rook
+        // onto the empty corner square and corrupted the position. Bits follow
+        // set_fen: 0b0001 K, 0b0010 Q, 0b0100 k, 0b1000 q.
+        for (int sq : {from, to})
+        {
+            switch (sq)
+            {
+            case 0:
+                castling_rights &= ~0b0010;
+                break; // a1: white queenside
+            case 7:
+                castling_rights &= ~0b0001;
+                break; // h1: white kingside
+            case 56:
+                castling_rights &= ~0b1000;
+                break; // a8: black queenside
+            case 63:
+                castling_rights &= ~0b0100;
+                break; // h8: black kingside
+            default:
+                break;
+            }
         }
         key ^= Zobrist.castling[castling_rights];
 
@@ -496,6 +527,36 @@ namespace pf
 
         board[to] = NO_PIECE;
         board[from] = piece;
+
+        // Castling: put the rook back.
+        //
+        // do_move() moves the rook alongside the king but undo_move() had no
+        // matching branch, so unmaking a castle left the rook on f1/d1 and the
+        // corner square empty. filter_legal_moves() make/unmakes every generated
+        // move, so simply generating moves in any position where castling was
+        // legal silently deleted a rook from the position being searched.
+        if (flags & FLAG_CASTLING)
+        {
+            int rookFrom, rookTo;
+            if (to == 6 || to == 62)
+            { // king side
+                rookFrom = (to == 6 ? 7 : 63);
+                rookTo = (to == 6 ? 5 : 61);
+            }
+            else
+            { // queen side
+                rookFrom = (to == 2 ? 0 : 56);
+                rookTo = (to == 2 ? 3 : 59);
+            }
+            Bitboard rFromBB = Bitboard(1) << rookFrom;
+            Bitboard rToBB = Bitboard(1) << rookTo;
+            Piece rook = (us == WHITE ? W_ROOK : B_ROOK);
+            pieceBB[rook] ^= (rFromBB | rToBB);
+            colorBB[us] ^= (rFromBB | rToBB);
+            occupiedBB ^= (rFromBB | rToBB);
+            board[rookTo] = NO_PIECE;
+            board[rookFrom] = rook;
+        }
 
         // Restore captured piece
         if (flags & FLAG_ENPASSANT)

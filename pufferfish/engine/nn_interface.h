@@ -17,6 +17,24 @@ namespace pf
         virtual ~NNEvaluator() = default;
 
         virtual int evaluate(const Position &pos) = 0;
+
+        // Incremental accumulator hooks, default no-ops so evaluators that do not
+        // maintain one are unaffected. The search brackets every position change:
+        //
+        //     nn->acc_begin_move(pos);   // snapshot, before the position changes
+        //     pos.do_move(m, u);
+        //     nn->acc_end_move(pos);     // diff against the snapshot, apply
+        //     ...
+        //     pos.undo_move(u);
+        //     nn->acc_unmake();          // reverse the applied delta
+        //
+        // Only the search may call these. Position::do_move is also used by
+        // filter_legal_moves() for legality testing, which restores the position
+        // itself and must not disturb the accumulator.
+        virtual void acc_reset(const Position &) {}
+        virtual void acc_begin_move(const Position &) {}
+        virtual void acc_end_move(const Position &) {}
+        virtual void acc_unmake() {}
     };
 
     // Forward declare new evaluator to satisfy includes

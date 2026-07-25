@@ -134,6 +134,11 @@ namespace pf
                       << " reserve_ms " << reserve << " alloc_ms " << alloc << std::endl;
         }
 
+        // Seed the incremental accumulator from the root position. Every move the
+        // search makes from here updates it by delta.
+        if (ctx.nn)
+            ctx.nn->acc_reset(pos);
+
         SearchResult result;
         Line rootPV;
         int alpha = -INF_SCORE;
@@ -232,14 +237,19 @@ namespace pf
                 continue;
 
             UndoState u;
+            // acc_begin_move only snapshots, so the illegal-move path below needs
+            // no accumulator call: nothing has been applied yet.
+            ctx.nn->acc_begin_move(pos);
             pos.do_move(m, u);
             if (pos.in_check(Color(pos.side_to_move ^ 1)))
             {
                 pos.undo_move(u);
                 continue;
             }
+            ctx.nn->acc_end_move(pos);
             int score = -qsearch(pos, ctx, -beta, -alpha, ply + 1);
             pos.undo_move(u);
+            ctx.nn->acc_unmake();
             if (score >= beta)
                 return score;
             if (score > alpha)
@@ -287,6 +297,9 @@ namespace pf
         {
             UndoState u;
             Move nullMove = MOVE_NONE;
+            // No accumulator hooks here on purpose. A null move leaves every piece
+            // bitboard untouched, and the feature encoding is colour-absolute with
+            // no side-to-move input, so the accumulator is unchanged by definition.
             pos.do_move(nullMove, u); // flip side without moving pieces
             int R = 2 + depth / 4;
             int score = -alphabeta(pos, ctx, depth - R, -beta, -beta + 1, ply + 1, NODE_NON_PV, pv);
@@ -316,12 +329,14 @@ namespace pf
         {
             Move m = ordered.moves[i];
             UndoState u;
+            ctx.nn->acc_begin_move(pos);
             pos.do_move(m, u);
             if (pos.in_check(Color(pos.side_to_move ^ 1)))
             {
                 pos.undo_move(u);
                 continue;
             }
+            ctx.nn->acc_end_move(pos);
             ++legalMoves;
 
             int newDepth = depth - 1;
@@ -347,6 +362,7 @@ namespace pf
             }
 
             pos.undo_move(u);
+            ctx.nn->acc_unmake();
 
             if (score > bestScore)
             {

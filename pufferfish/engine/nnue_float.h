@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "nn_interface.h"
+#include "types.h"
 
 namespace pf
 {
@@ -43,12 +44,47 @@ namespace pf
         // Centipawns, from the side to move's perspective.
         int evaluate(const Position &pos) override;
 
-        // White's perspective, before the side-to-move negation. Exposed so the
-        // port can be compared directly against the PyTorch reference.
+        // White's perspective, before the side-to-move negation. Always rebuilds
+        // the accumulator from the position, so it is both the reference used to
+        // check the port against PyTorch and the oracle used to check the
+        // incremental accumulator against a full rebuild.
         float evaluate_white(const Position &pos) const;
 
+        // Incremental accumulator. A move changes only a handful of features
+        // because the encoding is colour-absolute with no side-to-move input, so
+        // the ~32-feature rebuild collapses to ~4 feature updates.
+        void acc_reset(const Position &pos) override;
+        void acc_begin_move(const Position &pos) override;
+        void acc_end_move(const Position &pos) override;
+        void acc_unmake() override;
+
+    public:
+        const float *acc_debug() const { return acc_; }
+        int ply_debug() const { return ply_; }
+
     private:
+        // One accumulator update: feature index and whether it was added (+1) or
+        // removed (-1). Reversing these on unmake avoids copying the accumulator.
+        struct Delta
+        {
+            static constexpr int kMaxItems = 8;
+            int count = 0;
+            int feat[kMaxItems]{};
+            float sign[kMaxItems]{};
+            Bitboard snapshot[PIECE_NB]{}; // piece bitboards before the move
+            bool overflow = false;         // too many changes; rebuilt instead
+        };
+
+        void apply(int feat, float sign);
+        float tail(const float *acc) const;
+
         bool loaded_ = false;
+
+        // Live accumulator: [0..255] friendly projection, [256..511] enemy.
+        float acc_[2 * kAccUnits]{};
+        bool acc_valid_ = false;
+        std::vector<Delta> stack_;
+        int ply_ = 0;
 
         // Feature-major and interleaved: acc_w_[f * 512 .. +255] is the friendly
         // projection for feature f, [+256 .. +511] the enemy one. One contiguous
