@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iostream>
+#include <string>
 
 namespace pf
 {
@@ -152,6 +153,25 @@ namespace pf
     }
 
     int see_probe(const Position &pos, Move m) { return see(pos, m); }
+
+    static std::string uci_of(Move m)
+    {
+        if (m == MOVE_NONE)
+            return "0000";
+        const char *f = "abcdefgh";
+        std::string s;
+        s += f[from_sq(m) & 7];
+        s += char('1' + (from_sq(m) >> 3));
+        s += f[to_sq(m) & 7];
+        s += char('1' + (to_sq(m) >> 3));
+        if (move_flags(m) & FLAG_PROMOTION)
+        {
+            int pp = promo_piece(m);
+            int t = (pp >= W_PAWN && pp <= W_KING) ? pp - W_PAWN : pp - B_PAWN;
+            s += (t == KNIGHT) ? 'n' : (t == BISHOP) ? 'b' : (t == ROOK) ? 'r' : 'q';
+        }
+        return s;
+    }
 
     static std::uint64_t now_ms()
     {
@@ -336,6 +356,16 @@ namespace pf
                 result.score = score;
                 result.depth = depth;
                 rootPV = pv;
+
+                // Report each completed iteration, as UCI expects. Without this
+                // only the final line is visible, which hides how the search got
+                // to its answer.
+                std::cout << "info depth " << depth << " score cp " << score
+                          << " nodes " << (ctx.stats.nodes + ctx.stats.qnodes)
+                          << " pv";
+                for (int i = 0; i < pv.len && i < 8; ++i)
+                    std::cout << ' ' << uci_of(pv.moves[i]);
+                std::cout << std::endl;
             }
 
             if (timeUp)
@@ -466,22 +496,35 @@ namespace pf
         int alphaOrig = alpha;
         TTEntry tte;
         Move ttMove = MOVE_NONE;
+        const bool isPV = (nodeType == NODE_PV || nodeType == NODE_ROOT);
+
         if (ctx.tt && ctx.tt->probe(pos.key, depth, alpha, beta, ply, tte))
         {
-            ttMove = tte.best;
-            int tscore = tte.score;
-            if (tte.bound == BOUND_EXACT)
-                return tscore;
-            if (tte.bound == BOUND_LOWER && tscore > alpha)
-                alpha = tscore;
-            else if (tte.bound == BOUND_UPPER && tscore < beta)
-                beta = tscore;
-            if (alpha >= beta)
-                return tscore;
+            ttMove = tte.best; // always worth having for ordering
+
+            // Cut off only at non-PV nodes. A cutoff returns a score without
+            // filling the principal variation, and at the root that meant the
+            // whole iteration was discarded for having no PV. With a warm table
+            // every shallow iteration vanished that way, and the first depth deep
+            // enough to miss the entry committed to its stale line -- the engine
+            // answered a mate in one with a mate in five, but only in a
+            // long-running process, which is why it never reproduced from a fresh
+            // one. PV nodes need an exact score and a line, so they are searched.
+            if (!isPV)
+            {
+                int tscore = tte.score;
+                if (tte.bound == BOUND_EXACT)
+                    return tscore;
+                if (tte.bound == BOUND_LOWER && tscore > alpha)
+                    alpha = tscore;
+                else if (tte.bound == BOUND_UPPER && tscore < beta)
+                    beta = tscore;
+                if (alpha >= beta)
+                    return tscore;
+            }
         }
 
         // Static evaluation, computed once and only if some heuristic wants it.
-        const bool isPV = (nodeType == NODE_PV || nodeType == NODE_ROOT);
         int staticEval = INF_SCORE;
         auto lazyEval = [&]() -> int
         {
