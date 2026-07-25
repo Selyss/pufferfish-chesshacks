@@ -26,6 +26,133 @@ namespace pf
         return v[piece];
     }
 
+    // ---------------------------------------------------------------------
+    // Static exchange evaluation
+    //
+    // Move ordering used MVV-LVA alone, which only looks at what is captured and
+    // with what. It cannot tell a free pawn from a pawn that is defended three
+    // times, so QxP onto a guarded square was ordered as though it won material,
+    // and quiescence then searched the whole losing sequence.
+    //
+    // SEE plays the capture sequence out statically, each side recapturing with
+    // its least valuable attacker, and returns the material balance.
+    // ---------------------------------------------------------------------
+
+    static inline int see_value(int piece)
+    {
+        static const int v[PIECE_NB] = {
+            0, 100, 320, 330, 500, 900, 20000,
+            100, 320, 330, 500, 900, 20000};
+        return (piece <= 0 || piece >= PIECE_NB) ? 0 : v[piece];
+    }
+
+    // First blocker along each ray from `sq` under occupancy `occ`. Recomputing
+    // this after every capture is what makes x-rayed attackers appear.
+    static Bitboard ray_blockers(int sq, Bitboard occ, bool diagonal)
+    {
+        static const int dB[4] = {9, 7, -9, -7};
+        static const int dR[4] = {8, -8, 1, -1};
+        const int *dirs = diagonal ? dB : dR;
+        Bitboard res = 0;
+        for (int d = 0; d < 4; ++d)
+        {
+            int s = sq;
+            while (true)
+            {
+                const int file = s & 7, rank = s >> 3;
+                const int ns = s + dirs[d];
+                if (ns < 0 || ns >= 64)
+                    break;
+                if (std::abs((ns & 7) - file) > 1 || std::abs((ns >> 3) - rank) > 1)
+                    break;
+                s = ns;
+                const Bitboard bb = Bitboard(1) << s;
+                if (occ & bb)
+                {
+                    res |= bb;
+                    break;
+                }
+            }
+        }
+        return res;
+    }
+
+    static Bitboard attackers_to(const Position &pos, int sq, Bitboard occ)
+    {
+        Bitboard a = 0;
+        a |= PawnAttacks[BLACK][sq] & pos.pieceBB[W_PAWN];
+        a |= PawnAttacks[WHITE][sq] & pos.pieceBB[B_PAWN];
+        a |= KnightAttacks[sq] & (pos.pieceBB[W_KNIGHT] | pos.pieceBB[B_KNIGHT]);
+        a |= KingAttacks[sq] & (pos.pieceBB[W_KING] | pos.pieceBB[B_KING]);
+        a |= ray_blockers(sq, occ, true) &
+             (pos.pieceBB[W_BISHOP] | pos.pieceBB[W_QUEEN] |
+              pos.pieceBB[B_BISHOP] | pos.pieceBB[B_QUEEN]);
+        a |= ray_blockers(sq, occ, false) &
+             (pos.pieceBB[W_ROOK] | pos.pieceBB[W_QUEEN] |
+              pos.pieceBB[B_ROOK] | pos.pieceBB[B_QUEEN]);
+        return a & occ;
+    }
+
+    // Material won or lost by the capture sequence starting with `m`, in
+    // centipawns, from the perspective of the side making it.
+    static int see(const Position &pos, Move m)
+    {
+        const int to = to_sq(m);
+        const int from = from_sq(m);
+        const std::uint32_t flags = move_flags(m);
+
+        int gain[32];
+        int d = 0;
+        gain[0] = (flags & FLAG_ENPASSANT) ? see_value(W_PAWN)
+                                           : see_value(pos.board[to]);
+
+        Bitboard occ = pos.occupiedBB ^ (Bitboard(1) << from);
+        if (flags & FLAG_ENPASSANT)
+            occ ^= Bitboard(1) << (to + (pos.side_to_move == WHITE ? -8 : 8));
+
+        int attackerPiece = move_piece(m);
+        Color side = Color(pos.side_to_move ^ 1);
+        Bitboard attackers = attackers_to(pos, to, occ);
+
+        while (d < 31)
+        {
+            ++d;
+            gain[d] = see_value(attackerPiece) - gain[d - 1];
+            if (std::max(-gain[d - 1], gain[d]) < 0)
+                break; // already decided, whoever is to move will stop here
+
+            const Bitboard mine = attackers & occ & pos.colorBB[side];
+            if (!mine)
+                break;
+
+            // Recapture with the least valuable attacker available.
+            Bitboard chosen = 0;
+            const int base = (side == WHITE) ? W_PAWN : B_PAWN;
+            for (int pt = 0; pt < 6; ++pt)
+            {
+                const Bitboard s = mine & pos.pieceBB[base + pt];
+                if (s)
+                {
+                    chosen = s & (~s + 1); // lowest set bit
+                    attackerPiece = base + pt;
+                    break;
+                }
+            }
+            if (!chosen)
+                break;
+
+            occ ^= chosen;
+            attackers = attackers_to(pos, to, occ); // picks up x-rays
+            side = Color(side ^ 1);
+        }
+
+        while (--d > 0)
+            gain[d - 1] = -std::max(-gain[d - 1], gain[d]);
+        return gain[0];
+    }
+
+    int see_probe(const Position &pos, Move m) { return see(pos, m); }
+
     static std::uint64_t now_ms()
     {
         using namespace std::chrono;
@@ -63,10 +190,17 @@ namespace pf
             const bool isPromotion = (flags & FLAG_PROMOTION) != 0;
             if (isCapture)
             {
-                // MVV-LVA with real values
+                // MVV-LVA orders among captures, but cannot tell a winning capture
+                // from a losing one. SEE splits them: captures that lose material
+                // are pushed below every quiet move instead of being searched first.
                 int victim = pos.board[to_sq(m)];
                 int attacker = move_piece(m);
-                s += 200000 + piece_mvv_value(victim) - (piece_mvv_value(attacker) / 10);
+                const int mvvlva = piece_mvv_value(victim) - (piece_mvv_value(attacker) / 10);
+                const int exchange = see(pos, m);
+                if (exchange >= 0)
+                    s += 200000 + mvvlva;
+                else
+                    s += -200000 + exchange;
                 if (isPromotion)
                     s += 5000; // promote-capture is even better
             }
@@ -262,6 +396,13 @@ namespace pf
             // Here we use a simple constant margin.
             const int delta = 900; // queen
             if (standPat + delta < alpha && !(move_flags(m) & FLAG_PROMOTION))
+                continue;
+
+            // Skip captures that lose material outright. Quiescence exists to
+            // resolve exchanges, and searching a sequence the mover would never
+            // choose only inflates the tree.
+            if ((move_flags(m) & FLAG_CAPTURE) && !(move_flags(m) & FLAG_PROMOTION) &&
+                see(pos, m) < 0)
                 continue;
 
             UndoState u;

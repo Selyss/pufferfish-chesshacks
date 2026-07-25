@@ -71,4 +71,7 @@ namespace pf
 
     SearchResult search(Position &pos, SearchContext &ctx);
 
+    // Exposed for testing.
+    int see_probe(const Position &pos, Move m);
+
 } // namespace pf
