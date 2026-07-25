@@ -4,6 +4,7 @@
 #include <sstream>
 #include <string>
 #include <cstdlib>
+#include <chrono>
 
 #include "engine/types.h"
 #include "engine/bitboard.h"
@@ -206,6 +207,7 @@ int main(int argc, char **argv)
     int depth = 5;
     int movetime = 0;
     long long timeleft = 0;
+    bool bench = false;
     for (int i = 1; i < argc; ++i)
     {
         std::string a = argv[i];
@@ -252,6 +254,10 @@ int main(int argc, char **argv)
         else if (a == "--movetime" && i + 1 < argc)
         {
             movetime = std::max(0, std::atoi(argv[++i]));
+        }
+        else if (a == "--bench")
+        {
+            bench = true;
         }
         else if (a == "--timeleft" && i + 1 < argc)
         {
@@ -364,7 +370,58 @@ int main(int argc, char **argv)
             ctx.limits.time_left_ms = static_cast<std::uint64_t>(timeleft);
     }
 
+    if (bench)
+    {
+        // Fixed suite at fixed depth, so optimization work can be compared run to run.
+        static const char *benchFens[] = {
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "r1bq1rk1/pp2bppp/2n1pn2/2pp4/3P1B2/2PBPN2/PP1N1PPP/R2Q1RK1 w - - 0 9",
+            "r2q1rk1/pp1bbppp/2np1n2/4p3/2B1P3/2NP1N2/PPP1QPPP/R1B2RK1 w - - 0 10",
+            "8/5pk1/6p1/7p/5P1P/6P1/5K2/8 w - - 0 1",
+            "r3k2r/pppq1ppp/2npbn2/2b1p3/2B1P3/2NPBN2/PPPQ1PPP/R3K2R w KQkq - 0 1",
+            "6rk/ppp2p1p/2b1p3/4bp2/7q/2P2P2/PP2B2P/R2Q3K b - - 0 22",
+        };
+        const int n = (int)(sizeof(benchFens) / sizeof(benchFens[0]));
+        std::uint64_t totalNodes = 0;
+        auto t0 = std::chrono::steady_clock::now();
+        for (int k = 0; k < n; ++k)
+        {
+            Position bp;
+            bp.set_fen(benchFens[k]);
+            TranspositionTable btt;
+            btt.resize(64);
+            SearchContext bctx;
+            bctx.tt = &btt;
+            bctx.nn = evaluator;
+            bctx.limits.depth = depth;
+            bctx.limits.time_ms = 0;
+            SearchResult r = search(bp, bctx);
+            totalNodes += bctx.stats.nodes + bctx.stats.qnodes;
+            std::cout << "  pos " << (k + 1) << "  best " << move_to_uci(r.bestMove)
+                      << "  score " << r.score
+                      << "  nodes " << (bctx.stats.nodes + bctx.stats.qnodes) << "\n";
+        }
+        auto t1 = std::chrono::steady_clock::now();
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        std::cout << "bench depth " << depth
+                  << "  nodes " << totalNodes
+                  << "  time " << (long long)ms << "ms"
+                  << "  nps " << (long long)(totalNodes / (ms / 1000.0)) << "\n";
+        return 0;
+    }
+
+    auto st0 = std::chrono::steady_clock::now();
     SearchResult res = search(pos, ctx);
+    auto st1 = std::chrono::steady_clock::now();
+    double sms = std::chrono::duration<double, std::milli>(st1 - st0).count();
+
+    std::uint64_t nodes = ctx.stats.nodes + ctx.stats.qnodes;
+    std::cerr << "info depth " << res.depth
+              << " score " << res.score
+              << " nodes " << nodes
+              << " time " << (long long)sms
+              << " nps " << (long long)(sms > 0 ? nodes / (sms / 1000.0) : 0)
+              << std::endl;
 
     if (res.bestMove == MOVE_NONE)
         std::cout << "bestmove 0000\n";

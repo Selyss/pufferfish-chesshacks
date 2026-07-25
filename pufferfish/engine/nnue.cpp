@@ -1,9 +1,36 @@
 #include "nnue.h"
+#include "bitboard.h"
+#include "position.h"
 
 #include <fstream>
 
 namespace pf
 {
+
+    void NNUE::refresh(const Position &pos)
+    {
+        accumulator.clear(bias_friendly, bias_enemy);
+
+        const bool stmWhite = (pos.side_to_move == WHITE);
+        Bitboard occ = pos.occupiedBB;
+        while (occ)
+        {
+            const int sq = lsb(occ);
+            occ &= occ - 1;
+
+            const Piece pc = pos.board[sq];
+            if (pc == NO_PIECE)
+                continue;
+
+            const bool isWhite = (pc <= W_KING);
+            const int typeIdx = isWhite ? (pc - W_PAWN) : (pc - B_PAWN);
+            const bool isFriendly = (stmWhite == isWhite);
+            const int feat = ((isFriendly ? 0 : 6) + typeIdx) * 64 + sq;
+            if (feat >= 0 && feat < FEATURE_DIM)
+                add_feature(feat, +1);
+        }
+        accumulator.valid = true;
+    }
 
     bool NNUE::load(const std::string &path)
     {

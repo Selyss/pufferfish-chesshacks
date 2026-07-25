@@ -10,6 +10,8 @@
 namespace pf
 {
 
+    struct Position; // defined in position.h; only referenced by NNUE::refresh
+
     struct alignas(64) Accumulator
     {
         std::array<Accum, ACC_UNITS> friendly;
@@ -79,6 +81,18 @@ namespace pf
                     add_feature(f, +1);
             }
         }
+
+        // Rebuild the accumulator directly from a position.
+        //
+        // Replaces extract_features() -> std::vector<int> -> initialize_accumulator().
+        // That path scanned all 64 squares including empty ones, ran a switch per
+        // piece, and pushed into a heap vector on every single evaluation. This walks
+        // the occupancy bitboard instead, touching only occupied squares and
+        // accumulating in place.
+        //
+        // Feature layout must match extract_features() in features.cpp:
+        //   feat = (friendly ? 0 : 6 + typeIdx) * 64 + square, typeIdx 0..5 = P,N,B,R,Q,K
+        void refresh(const Position &pos);
 
         // Evaluate from side-to-move perspective (centipawns).
         int evaluate() const;
