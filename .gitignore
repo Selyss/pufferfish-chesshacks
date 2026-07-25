@@ -15,3 +15,4 @@ bot\python\nnue_residual_rebalanced_preprocessed.bin
 mates-150m-60w-cpu64-modal-compact-a100/
 mates-5m-60w-cpu64-modal-compact-a100/bot_search.log
 log.txt
+.selfplay/

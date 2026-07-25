@@ -195,6 +195,201 @@ static std::string move_to_san(Position &pos, Move m)
     return san;
 }
 
+// Find the legal move matching a UCI string such as "e2e4" or "e7e8q".
+static Move move_from_uci(Position &pos, const std::string &s)
+{
+    if (s.size() < 4)
+        return MOVE_NONE;
+    auto sq = [](char file, char rank) -> int
+    { return (rank - '1') * 8 + (file - 'a'); };
+    const int from = sq(s[0], s[1]);
+    const int to = sq(s[2], s[3]);
+    const char promo = (s.size() >= 5) ? s[4] : '\0';
+
+    MoveList ml;
+    generate_moves(pos, ml);
+    filter_legal_moves(pos, ml);
+    for (int i = 0; i < ml.count; ++i)
+    {
+        Move m = ml.moves[i];
+        if (from_sq(m) != from || to_sq(m) != to)
+            continue;
+        if (move_flags(m) & FLAG_PROMOTION)
+        {
+            if (promo_char_from_piece(promo_piece(m)) != promo)
+                continue;
+        }
+        else if (promo != '\0')
+        {
+            continue;
+        }
+        return m;
+    }
+    return MOVE_NONE;
+}
+
+// Minimal UCI loop. Enough for lichess-bot and for tools/selfplay.py to run
+// whole games in one process, which also keeps the transposition table warm
+// across moves instead of rebuilding it per move like the one-shot CLI does.
+static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
+{
+    TranspositionTable tt;
+    tt.resize(64);
+    Position pos;
+    pos.set_startpos();
+
+    std::string line;
+    while (std::getline(std::cin, line))
+    {
+        std::istringstream is(line);
+        std::string token;
+        is >> token;
+
+        if (token == "uci")
+        {
+            std::cout << "id name Pufferfish\n";
+            std::cout << "id author ChessHacks\n";
+            std::cout << "option name Hash type spin default 64 min 1 max 1024\n";
+            std::cout << "uciok" << std::endl;
+        }
+        else if (token == "isready")
+        {
+            std::cout << "readyok" << std::endl;
+        }
+        else if (token == "ucinewgame")
+        {
+            tt.resize(64); // clears
+            pos.set_startpos();
+        }
+        else if (token == "setoption")
+        {
+            std::string w;
+            std::string name;
+            int value = 0;
+            while (is >> w)
+            {
+                if (w == "name")
+                    is >> name;
+                else if (w == "value")
+                    is >> value;
+            }
+            if (name == "Hash" && value > 0)
+                tt.resize(value);
+        }
+        else if (token == "position")
+        {
+            std::string sub;
+            is >> sub;
+            if (sub == "startpos")
+            {
+                pos.set_startpos();
+            }
+            else if (sub == "fen")
+            {
+                std::string fen, part;
+                for (int i = 0; i < 6 && (is >> part); ++i)
+                {
+                    if (part == "moves")
+                        break;
+                    if (!fen.empty())
+                        fen += ' ';
+                    fen += part;
+                }
+                pos.set_fen(fen);
+                if (part == "moves")
+                {
+                    std::string mv;
+                    while (is >> mv)
+                    {
+                        Move m = move_from_uci(pos, mv);
+                        if (m == MOVE_NONE)
+                            break;
+                        UndoState u;
+                        pos.do_move(m, u);
+                    }
+                    continue;
+                }
+            }
+            std::string w;
+            while (is >> w)
+            {
+                if (w == "moves")
+                    continue;
+                Move m = move_from_uci(pos, w);
+                if (m == MOVE_NONE)
+                    break;
+                UndoState u;
+                pos.do_move(m, u);
+            }
+        }
+        else if (token == "go")
+        {
+            SearchContext ctx;
+            ctx.tt = &tt;
+            ctx.nn = evaluator;
+            long long movetime = 0, wtime = 0, btime = 0, winc = 0, binc = 0;
+            int depth = 0;
+            std::string w;
+            while (is >> w)
+            {
+                if (w == "movetime")
+                    is >> movetime;
+                else if (w == "depth")
+                    is >> depth;
+                else if (w == "wtime")
+                    is >> wtime;
+                else if (w == "btime")
+                    is >> btime;
+                else if (w == "winc")
+                    is >> winc;
+                else if (w == "binc")
+                    is >> binc;
+                else if (w == "infinite")
+                    depth = 64;
+            }
+            if (movetime > 0)
+            {
+                ctx.limits.time_ms = (std::uint64_t)movetime;
+                ctx.limits.depth = 0;
+            }
+            else if (depth > 0)
+            {
+                ctx.limits.depth = depth;
+                ctx.limits.time_ms = 0;
+            }
+            else
+            {
+                const long long left = (pos.side_to_move == WHITE) ? wtime : btime;
+                if (left > 0)
+                {
+                    ctx.limits.depth = 0;
+                    ctx.limits.time_ms = 0;
+                    ctx.limits.time_left_ms = (std::uint64_t)left;
+                }
+                else
+                {
+                    ctx.limits.depth = 6; // nothing specified; keep it quick
+                }
+            }
+
+            SearchResult res = search(pos, ctx);
+            std::uint64_t nodes = ctx.stats.nodes + ctx.stats.qnodes;
+            std::cout << "info depth " << res.depth << " score cp " << res.score
+                      << " nodes " << nodes << std::endl;
+            if (res.bestMove == MOVE_NONE)
+                std::cout << "bestmove 0000" << std::endl;
+            else
+                std::cout << "bestmove " << move_to_uci(res.bestMove) << std::endl;
+        }
+        else if (token == "quit")
+        {
+            break;
+        }
+    }
+    (void)loadedPath;
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     init_zobrist();
@@ -209,6 +404,7 @@ int main(int argc, char **argv)
     int movetime = 0;
     long long timeleft = 0;
     bool bench = false;
+    bool uci = (argc == 1); // bare invocation behaves like a normal UCI engine
     for (int i = 1; i < argc; ++i)
     {
         std::string a = argv[i];
@@ -259,6 +455,10 @@ int main(int argc, char **argv)
         else if (a == "--bench")
         {
             bench = true;
+        }
+        else if (a == "--uci")
+        {
+            uci = true;
         }
         else if (a == "--timeleft" && i + 1 < argc)
         {
@@ -379,6 +579,9 @@ int main(int argc, char **argv)
                        : evaluator == static_cast<NNEvaluator *>(&inn) ? " int16" : " float32")
                   << std::endl;
     }
+
+    if (uci)
+        return uci_loop(evaluator, loadedPath);
 
     SearchContext ctx;
     ctx.tt = &tt;
