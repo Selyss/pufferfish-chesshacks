@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <cstdlib>
 
 #include "engine/types.h"
 #include "engine/bitboard.h"
@@ -208,13 +209,41 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; ++i)
     {
         std::string a = argv[i];
-        if (a == "--fen" && i + 6 <= argc)
+        if (a == "--fen" && i + 1 < argc)
         {
-            std::ostringstream os;
-            os << argv[i + 1] << ' ' << argv[i + 2] << ' ' << argv[i + 3]
-               << ' ' << argv[i + 4] << ' ' << argv[i + 5] << ' ' << argv[i + 6];
-            fen = os.str();
-            i += 6;
+            // Accept either a single quoted FEN ("--fen \"8/8/... w - - 0 1\"") or the
+            // six fields as separate tokens. The old code required exactly six tokens
+            // and silently fell back to the start position otherwise, which is very
+            // easy to trigger by accident -- zsh, unlike bash, does not word-split
+            // unquoted variables, so `--fen $FEN` arrives as one argument.
+            std::string first = argv[i + 1];
+            if (first.find(' ') != std::string::npos)
+            {
+                fen = first;
+                i += 1;
+            }
+            else
+            {
+                std::ostringstream os;
+                int consumed = 0;
+                for (int k = 1; k <= 6 && i + k < argc; ++k)
+                {
+                    std::string tok = argv[i + k];
+                    if (tok.rfind("--", 0) == 0)
+                        break;
+                    if (consumed)
+                        os << ' ';
+                    os << tok;
+                    ++consumed;
+                }
+                fen = os.str();
+                i += consumed;
+            }
+            if (fen.empty())
+            {
+                std::cerr << "error: --fen given no value" << std::endl;
+                return 2;
+            }
         }
         else if (a == "--depth" && i + 1 < argc)
         {
@@ -237,29 +266,76 @@ int main(int argc, char **argv)
     TranspositionTable tt;
     tt.resize(64); // 64 MB
 
-    // Load SimpleNNUE residual model (residual-nnue-v1 JSON+records)
+    // Evaluator selection.
+    //
+    // Two evaluators exist. The int16 NNUE (256x2-32-32-1, nnue.h) has a real
+    // incremental accumulator and matching weights committed to the repo, so it is
+    // the default. SimpleNNUEEvaluator reads the float residual-nnue-v1 format,
+    // whose weights are gitignored and generally absent; it is opt-in via
+    // PUFFERFISH_SIMPLE_NNUE so a missing file can no longer take the engine down.
+    //
+    // Note SimpleNNUEEvaluator implements the older SimpleNNUE architecture, whose
+    // residual blocks carry a LayerNorm. It cannot represent the newer "compact"
+    // checkpoints (no LayerNorm, trailing ReLU) such as inference006.pt.
+    NNUEEvaluator inn;
     SimpleNNUEEvaluator snn;
+    NNEvaluator *evaluator = nullptr;
+
+    bool loaded = false;
+    const char *loadedPath = nullptr;
+
+    const char *int16Paths[] = {
+        "bot/python/nnue_weights.bin",
+        "../bot/python/nnue_weights.bin",
+        "../../bot/python/nnue_weights.bin",
+        "../../../bot/python/nnue_weights.bin",
+    };
     const char *simplePaths[] = {
         "bot/python/nnue_residual_rebalanced_preprocessed.bin",
         "../bot/python/nnue_residual_rebalanced_preprocessed.bin",
         "../../bot/python/nnue_residual_rebalanced_preprocessed.bin",
         "../../../bot/python/nnue_residual_rebalanced_preprocessed.bin",
-        // "bot/python/nnue_residual",
-        // "../bot/python/nnue_residual",
-        // "../../bot/python/nnue_residual",
-        // "../../../bot/python/nnue_residual",
     };
-    bool loaded = false;
-    const char *loadedPath = nullptr;
-    for (const char *p : simplePaths)
+
+    if (std::getenv("PUFFERFISH_SIMPLE_NNUE") != nullptr)
     {
-        if (snn.load(p))
+        for (const char *p : simplePaths)
         {
-            loaded = true;
-            loadedPath = p;
-            break;
+            if (snn.load(p))
+            {
+                loaded = true;
+                loadedPath = p;
+                evaluator = static_cast<NNEvaluator *>(&snn);
+                break;
+            }
         }
     }
+    else
+    {
+        if (const char *envPath = std::getenv("PUFFERFISH_NNUE_PATH"))
+        {
+            if (inn.load(envPath))
+            {
+                loaded = true;
+                loadedPath = envPath;
+                evaluator = static_cast<NNEvaluator *>(&inn);
+            }
+        }
+        if (!loaded)
+        {
+            for (const char *p : int16Paths)
+            {
+                if (inn.load(p))
+                {
+                    loaded = true;
+                    loadedPath = p;
+                    evaluator = static_cast<NNEvaluator *>(&inn);
+                    break;
+                }
+            }
+        }
+    }
+
     if (!loaded)
     {
         std::cerr << "error nnue_load_failed" << std::endl;
@@ -267,12 +343,14 @@ int main(int argc, char **argv)
     }
     else
     {
-        std::cerr << "info nnue_loaded " << loadedPath << " simple" << std::endl;
+        std::cerr << "info nnue_loaded " << loadedPath
+                  << (evaluator == static_cast<NNEvaluator *>(&snn) ? " simple" : " int16")
+                  << std::endl;
     }
 
     SearchContext ctx;
     ctx.tt = &tt;
-    ctx.nn = static_cast<NNEvaluator *>(&snn);
+    ctx.nn = evaluator;
     if (movetime > 0)
     {
         ctx.limits.time_ms = static_cast<std::uint64_t>(movetime);

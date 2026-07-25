@@ -1,4 +1,5 @@
 #include "features.h"
+#include "bitboard.h"
 #include <algorithm>
 #include <iterator>
 
@@ -145,7 +146,7 @@ namespace pf
         {
             // Count bits in piece bitboard
             Bitboard bb = pos.pieceBB[p];
-            return (int)__popcnt64(bb);
+            return popcount(bb);
         };
         int wp = count_piece(W_PAWN), bp = count_piece(B_PAWN);
         int wn = count_piece(W_KNIGHT), bn = count_piece(B_KNIGHT);
