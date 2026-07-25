@@ -238,6 +238,10 @@ static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
     Position pos;
     pos.set_startpos();
 
+    // Keys of every position the game passed through before the current one.
+    // The search needs these to see a repetition that began before its root.
+    std::vector<Key> gameKeys;
+
     std::string line;
     while (std::getline(std::cin, line))
     {
@@ -260,6 +264,7 @@ static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
         {
             tt.resize(64); // clears
             pos.set_startpos();
+            gameKeys.clear();
         }
         else if (token == "setoption")
         {
@@ -280,6 +285,7 @@ static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
         {
             std::string sub;
             is >> sub;
+            gameKeys.clear();
             if (sub == "startpos")
             {
                 pos.set_startpos();
@@ -305,6 +311,7 @@ static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
                         if (m == MOVE_NONE)
                             break;
                         UndoState u;
+                        gameKeys.push_back(pos.key);
                         pos.do_move(m, u);
                     }
                     continue;
@@ -319,6 +326,7 @@ static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
                 if (m == MOVE_NONE)
                     break;
                 UndoState u;
+                gameKeys.push_back(pos.key);
                 pos.do_move(m, u);
             }
         }
@@ -327,6 +335,7 @@ static int uci_loop(NNEvaluator *evaluator, const char *loadedPath)
             SearchContext ctx;
             ctx.tt = &tt;
             ctx.nn = evaluator;
+            ctx.repetitionKeys = gameKeys;
             long long movetime = 0, wtime = 0, btime = 0, winc = 0, binc = 0;
             int depth = 0;
             std::string w;

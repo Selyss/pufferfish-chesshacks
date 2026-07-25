@@ -139,6 +139,11 @@ namespace pf
         if (ctx.nn)
             ctx.nn->acc_reset(pos);
 
+        // The caller supplies the keys of the game so far; the root itself is part
+        // of the path too, so push it here and drop it again on the way out.
+        ctx.repetitionKeys.push_back(pos.key);
+        const std::size_t repBase = ctx.repetitionKeys.size();
+
         SearchResult result;
         Line rootPV;
         int alpha = -INF_SCORE;
@@ -215,6 +220,10 @@ namespace pf
             }
         }
 
+        // Unwind the root key (and anything a timed-out iteration left behind).
+        if (ctx.repetitionKeys.size() >= repBase)
+            ctx.repetitionKeys.resize(repBase - 1);
+
         (void)rootPV; // could be logged/used for UI
         return result;
     }
@@ -266,9 +275,11 @@ namespace pf
                 continue;
             }
             ctx.nn->acc_end_move(pos);
+            ctx.repetitionKeys.push_back(pos.key);
             int score = -qsearch(pos, ctx, -beta, -alpha, ply + 1);
             pos.undo_move(u);
             ctx.nn->acc_unmake();
+            ctx.repetitionKeys.pop_back();
             if (score >= beta)
                 return score;
             if (score > alpha)
@@ -284,6 +295,19 @@ namespace pf
 
         if (should_abort(ctx))
             return 0;
+
+        // Draw by repetition or by the fifty-move rule.
+        //
+        // Checked before the transposition probe on purpose: both depend on the
+        // path taken to reach this position rather than on the position itself, so
+        // the result must not be read from or written to the table. Skipped at the
+        // root, where a score is no substitute for a move.
+        if (ply > 0)
+        {
+            if (pos.halfmove_clock >= 100 ||
+                ctx.is_repetition(pos.key, pos.halfmove_clock))
+                return DRAW_SCORE;
+        }
 
         bool inCheck = pos.in_check(pos.side_to_move);
         if (inCheck)
@@ -320,9 +344,11 @@ namespace pf
             // bitboard untouched, and the feature encoding is colour-absolute with
             // no side-to-move input, so the accumulator is unchanged by definition.
             pos.do_move(nullMove, u); // flip side without moving pieces
+            ctx.repetitionKeys.push_back(pos.key);
             int R = 2 + depth / 4;
             int score = -alphabeta(pos, ctx, depth - R, -beta, -beta + 1, ply + 1, NODE_NON_PV, pv);
             pos.undo_move(u);
+            ctx.repetitionKeys.pop_back();
             if (score >= beta)
                 return score;
         }
@@ -356,6 +382,7 @@ namespace pf
                 continue;
             }
             ctx.nn->acc_end_move(pos);
+            ctx.repetitionKeys.push_back(pos.key);
             ++legalMoves;
 
             int newDepth = depth - 1;
@@ -382,6 +409,7 @@ namespace pf
 
             pos.undo_move(u);
             ctx.nn->acc_unmake();
+            ctx.repetitionKeys.pop_back();
 
             if (score > bestScore)
             {
