@@ -476,6 +476,28 @@ namespace pf
                 return tscore;
         }
 
+        // Static evaluation, computed once and only if some heuristic wants it.
+        const bool isPV = (nodeType == NODE_PV || nodeType == NODE_ROOT);
+        int staticEval = INF_SCORE;
+        auto lazyEval = [&]() -> int
+        {
+            if (staticEval == INF_SCORE)
+                staticEval = ctx.nn->evaluate(pos);
+            return staticEval;
+        };
+
+        // Reverse futility (static null move) pruning: if the position is already
+        // so far above beta that a whole quiet move could not bring it back, take
+        // the fail-high without searching. Restricted to shallow non-PV nodes that
+        // are not in check, and disabled near mate scores where a margin in
+        // centipawns is meaningless.
+        if (!isPV && !inCheck && depth <= 6 && std::abs(beta) < MATE_SCORE - 200)
+        {
+            const int margin = 110 * depth;
+            if (lazyEval() - margin >= beta)
+                return lazyEval() - margin;
+        }
+
         // Null move pruning
         if (!inCheck && depth >= 3 && nodeType != NODE_ROOT)
         {
@@ -510,10 +532,33 @@ namespace pf
         int bestScore = -INF_SCORE;
         Move bestMove = MOVE_NONE;
         int legalMoves = 0;
+        int quietsTried = 0;
 
         for (int i = 0; i < ordered.count; ++i)
         {
             Move m = ordered.moves[i];
+            const std::uint32_t mflags = move_flags(m);
+            const bool isQuiet = !(mflags & (FLAG_CAPTURE | FLAG_PROMOTION));
+
+            // Discard quiet moves that cannot plausibly matter.
+            //
+            // Only once a legal move has already been found. Pruning before that
+            // could leave legalMoves at zero and make the node look like mate or
+            // stalemate, which is precisely the bug that made this engine
+            // stalemate won endgames.
+            if (legalMoves > 0 && isQuiet && !isPV && !inCheck &&
+                std::abs(alpha) < MATE_SCORE - 200)
+            {
+                // Late move pruning: deep into a well-ordered quiet list the rest
+                // rarely repay a search at shallow depth.
+                if (depth <= 4 && quietsTried >= 4 + depth * depth)
+                    continue;
+
+                // Futility: even a generous bonus leaves this short of alpha.
+                if (depth <= 3 && lazyEval() + 120 * depth + 150 <= alpha)
+                    continue;
+            }
+
             UndoState u;
             ctx.nn->acc_begin_move(pos);
             pos.do_move(m, u);
@@ -525,6 +570,8 @@ namespace pf
             ctx.nn->acc_end_move(pos);
             ctx.repetitionKeys.push_back(pos.key);
             ++legalMoves;
+            if (isQuiet)
+                ++quietsTried;
 
             int newDepth = depth - 1;
             int score;
