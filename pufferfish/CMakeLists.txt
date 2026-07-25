@@ -57,3 +57,9 @@ target_link_libraries(pufferfish PRIVATE pufferfish_engine)
 add_executable(pufferfish_tests tests.cpp)
 target_link_libraries(pufferfish_tests PRIVATE pufferfish_engine)
 
+
+# Prints the engine's legal moves for FENs on stdin, so tests/test_engine.py can
+# cross-check the whole move generator against python-chess. That check is what
+# caught castling through an attacked square.
+add_executable(movedump movedump.cpp)
+target_link_libraries(movedump PRIVATE pufferfish_engine)
