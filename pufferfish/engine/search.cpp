@@ -415,6 +415,18 @@ namespace pf
             }
         }
 
+        // No legal move: this node is checkmate or stalemate.
+        //
+        // generate_moves() is pseudo-legal, so the count check before the loop does
+        // not fire here -- a mated or stalemated position still produces moves, they
+        // are just all illegal. Without this, bestScore kept its -INF_SCORE seed and
+        // was returned as a real score, which the parent negated to +INF_SCORE
+        // (32000). That is larger than MATE_SCORE (31000), so stalemating the
+        // opponent scored better than checkmating them, and the engine drew won
+        // games on purpose: it stalemated K+Q vs K in 6 of 6 test positions.
+        if (legalMoves == 0)
+            return inCheck ? (-MATE_SCORE + ply) : DRAW_SCORE;
+
         BoundType bound = BOUND_EXACT;
         if (bestScore <= alphaOrig)
             bound = BOUND_UPPER;
